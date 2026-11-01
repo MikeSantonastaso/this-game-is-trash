@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>This Game Is Trash</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800&display=swap" />
   <link rel="stylesheet" href="style.css" />
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/three-addons/", "cannon-es": "./vendor/cannon-es.js" } }
@@ -13,17 +15,22 @@
   <canvas id="game"></canvas>
 
   <div id="hud">
-    <div id="hud-top-left">
-      <div class="money-wrap"><div id="hud-money">$0</div></div>
-      <div id="hud-tool"></div>
-    </div>
-    <div id="hud-bottom">
-      <div class="bag">
-        <span class="label">BAG</span>
-        <div class="bar"><div id="hud-bag-fill" class="fill"></div></div>
-        <span id="hud-bag-count">0/6</span>
+    <div id="hud-bag" class="panel">
+      <div class="gauge">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle class="track" cx="32" cy="32" r="26" />
+          <circle id="hud-bag-ring" class="ring" cx="32" cy="32" r="26" pathLength="100" />
+        </svg>
+        <div class="gauge-text"><span id="hud-bag-count">0/6</span><small>BAG</small></div>
       </div>
       <div class="belt"><span class="label">BELT</span><span id="hud-belt"></span></div>
+    </div>
+    <div id="hud-money-panel" class="panel">
+      <span class="coin">$</span><div class="money-wrap"><div id="hud-money">0</div></div>
+    </div>
+    <div id="hud-tool-panel" class="panel">
+      <div class="tool-icon"></div>
+      <div><small>TOOL</small><div id="hud-tool"></div></div>
     </div>
     <div id="hud-prompt"></div>
     <div id="crosshair"></div>

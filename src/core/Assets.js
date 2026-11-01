@@ -49,6 +49,18 @@ export class Assets {
     wrapper.add(scene);
     wrapper.traverse((o) => {
       if (o.isMesh) {
+        // These packs export every material as 40% metallic and fairly glossy,
+        // which turns them chalky under sky lighting. Make them matte, keep
+        // real metal and glass a little shiny, and liven up foliage.
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (m.userData.fixed) continue;
+          m.userData.fixed = true;
+          const name = (m.name || '').toLowerCase();
+          const shiny = /metal|glass|steel|iron/.test(name);
+          m.metalness = shiny ? 0.5 : 0;
+          m.roughness = shiny ? 0.4 : 0.85;
+          if (/green|leaf|leaves|grass|bush/.test(name)) m.color.offsetHSL(0.01, 0.12, 0.03);
+        }
         o.castShadow = def.castShadow !== false;
         o.receiveShadow = true;
         if (o.isSkinnedMesh) o.frustumCulled = false;

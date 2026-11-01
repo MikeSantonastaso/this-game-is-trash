@@ -12,7 +12,7 @@ try {
     startBtn.textContent = `Loading ${Math.round(p * 100)}%`;
   });
   window.TGIT = game; // handy for poking at things from the console
-  game.renderer.render(game.scene, game.camera);
+  game.graphics.render(0);
   startBtn.disabled = false;
   startBtn.textContent = 'Clock in';
   startBtn.addEventListener('click', () => {

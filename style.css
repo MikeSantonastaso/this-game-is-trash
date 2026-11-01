@@ -7,6 +7,10 @@
   --muted: #b5bcc4;
   --money: #7ee081;
   --warn: #ffcf5c;
+  --panel-hud: rgba(28, 52, 104, 0.9);
+  --rim: rgba(160, 200, 255, 0.55);
+  --rim-text: #a9c8ff;
+  --hud-font: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 * { box-sizing: border-box; }
@@ -18,40 +22,59 @@ kbd {
   background: #f4f4f4; color: var(--ink); font: 700 0.8em/1.5 system-ui, sans-serif; box-shadow: 0 2px 0 #888;
 }
 
-/* ---------- HUD ---------- */
-#hud { position: fixed; inset: 0; pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-#hud-top-left { position: absolute; top: 16px; left: 16px; }
+/* ---------- HUD ----------
+   Chunky navy panels with a light rim, condensed type, one accent per widget. */
+#hud { position: fixed; inset: 0; pointer-events: none; font-family: var(--hud-font); }
+.panel { position: absolute; background: var(--panel-hud); border: 2px solid var(--rim); border-radius: 16px;
+  box-shadow: 0 4px 0 rgba(8, 18, 40, 0.55), 0 10px 24px rgba(0, 0, 0, 0.25); color: #fff; }
+.panel small, #hud .label { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; color: var(--rim-text); }
+
+#hud-bag { top: 16px; left: 16px; display: flex; align-items: center; gap: 12px; padding: 8px 14px 8px 8px; }
+.gauge { position: relative; width: 72px; height: 72px; }
+.gauge svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.gauge circle { fill: none; stroke-width: 8; }
+.gauge .track { stroke: rgba(255, 255, 255, 0.14); }
+.gauge .ring { stroke: var(--hivis); stroke-linecap: round; stroke-dasharray: 0 100; transition: stroke-dasharray 0.2s, stroke 0.2s; }
+#hud-bag.full .ring { stroke: #ff4d4d; }
+#hud-bag.full { animation: pulse 0.9s ease-in-out infinite alternate; }
+@keyframes pulse { to { border-color: #ff4d4d; } }
+.gauge-text { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1; }
+#hud-bag-count { font-size: 22px; font-weight: 800; }
+.gauge-text small { font-size: 11px; }
+.belt { display: flex; flex-direction: column; gap: 6px; }
+#hud-belt { display: flex; gap: 5px; }
+.slot { display: inline-block; width: 18px; height: 22px; border-radius: 50% 50% 45% 45%; border: 2px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.2); }
+.slot.on { background: #1d2024; border-color: var(--hivis); box-shadow: inset 0 -4px 0 rgba(255,255,255,0.08); }
+
+#hud-money-panel { top: 16px; right: 16px; display: flex; align-items: center; gap: 10px; padding: 6px 18px 6px 8px; }
+.coin { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #ffe680, #f2b51d 60%, #c98a06);
+  color: #7a4b00; font-weight: 800; font-size: 24px; box-shadow: inset 0 -3px 0 rgba(0,0,0,0.2); }
 .money-wrap { position: relative; }
-#hud-money { font-size: 40px; font-weight: 900; color: var(--money); letter-spacing: 0.02em; }
-.money-pop { position: absolute; left: 4px; top: 44px; color: var(--money); font-weight: 800; font-size: 22px; animation: rise 1.2s ease-out forwards; }
+#hud-money { font-size: 38px; font-weight: 800; letter-spacing: 0.02em; min-width: 2ch; text-align: right; }
+.money-pop { position: absolute; right: 0; top: 46px; color: var(--money); font-weight: 800; font-size: 24px; text-shadow: 0 2px 0 rgba(0,0,0,0.4); animation: rise 1.2s ease-out forwards; }
 @keyframes rise { to { transform: translateY(-40px); opacity: 0; } }
-#hud-tool { font-size: 15px; color: var(--muted); font-weight: 600; }
 
-#hud-bottom { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; gap: 22px; align-items: center;
-  background: var(--panel); padding: 10px 18px; border-radius: 14px; text-shadow: none; }
-#hud-bottom .label { font-size: 12px; font-weight: 800; color: var(--muted); letter-spacing: 0.1em; margin-right: 8px; }
-.bag { display: flex; align-items: center; }
-.bar { width: 160px; height: 14px; background: #333; border-radius: 7px; overflow: hidden; margin-right: 8px; }
-.bar .fill { height: 100%; width: 0; background: var(--hivis); transition: width 0.15s; }
-.bar .fill.full { background: #e44; }
-#hud-bag-count { font-weight: 800; min-width: 3.2em; }
-.belt { display: flex; align-items: center; }
-.slot { display: inline-block; width: 18px; height: 22px; margin-right: 4px; border-radius: 50% 50% 45% 45%; border: 2px solid #666; }
-.slot.on { background: #111; border-color: var(--hivis); }
+#hud-tool-panel { left: 16px; bottom: 16px; display: flex; align-items: center; gap: 12px; padding: 8px 18px 8px 8px; }
+.tool-icon { width: 52px; height: 52px; border-radius: 12px; background: rgba(255,255,255,0.1);
+  background-image: linear-gradient(135deg, transparent 45%, #c7ccd2 45%, #c7ccd2 55%, transparent 55%), radial-gradient(circle at 78% 78%, var(--hivis) 0 9px, transparent 10px); }
+#hud-tool { font-size: 22px; font-weight: 800; }
 
-#hud-prompt { position: absolute; left: 50%; bottom: 92px; transform: translateX(-50%); font-size: 18px; font-weight: 600; white-space: nowrap; }
+#hud-prompt { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); font-size: 20px; font-weight: 700; white-space: nowrap;
+  background: var(--panel-hud); border: 2px solid var(--rim); border-radius: 999px; padding: 6px 18px; color: #fff; }
+#hud-prompt:empty { display: none; }
 #hud-prompt b { color: var(--money); }
-#crosshair { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: rgba(255,255,255,0.8); box-shadow: 0 0 0 2px rgba(0,0,0,0.3); transition: transform 0.1s; }
+#hud-prompt kbd { font-family: var(--hud-font); }
+#crosshair { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border-radius: 50%; background: rgba(255,255,255,0.85); box-shadow: 0 0 0 2px rgba(0,0,0,0.3); transition: transform 0.1s; }
 #crosshair.active { background: #fff35c; transform: scale(1.8); }
 
-#toasts { position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: min(420px, 80vw); }
-.toast { background: var(--panel); padding: 8px 14px; border-radius: 10px; font-weight: 700; text-shadow: none; border-left: 4px solid #6aa9ff; transition: opacity 0.4s, transform 0.4s; }
-.toast.money { border-color: var(--money); }
-.toast.warn { border-color: var(--warn); }
-.toast.gary { border-color: #d36bff; font-size: 18px; }
+#toasts { position: absolute; top: 88px; right: 16px; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: min(420px, 80vw); }
+.toast { background: var(--panel-hud); border: 2px solid var(--rim); padding: 8px 14px; border-radius: 12px; font-weight: 700; font-size: 18px; color: #fff; border-left: 6px solid #6aa9ff; transition: opacity 0.4s, transform 0.4s; }
+.toast.money { border-left-color: var(--money); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.gary { border-left-color: #d36bff; font-size: 21px; }
 .toast.out { opacity: 0; transform: translateX(20px); }
 
-#help { position: absolute; left: 16px; bottom: 20px; background: var(--panel); padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.9; text-shadow: none; max-width: calc(100vw - 32px); }
+#help { position: absolute; left: 16px; bottom: 100px; font-family: system-ui, sans-serif; color: #fff; background: var(--panel-hud); border: 2px solid var(--rim); padding: 12px 14px; border-radius: 12px; font-size: 14px; line-height: 1.9; text-shadow: none; max-width: calc(100vw - 32px); }
 
 /* ---------- Shop ---------- */
 #shop { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.45); padding: 16px; }
@@ -90,7 +113,8 @@ button.link { background: none; border: 0; color: #ff8a8a; text-decoration: unde
 .error { color: #ff8a8a; }
 
 @media (max-width: 600px) {
-  #hud-bottom { flex-direction: column; gap: 6px; bottom: 12px; }
-  #hud-prompt { bottom: 110px; font-size: 15px; }
-  #hud-money { font-size: 30px; }
+  #hud-prompt { bottom: 90px; font-size: 16px; }
+  #hud-money { font-size: 28px; }
+  .gauge { width: 56px; height: 56px; }
+  #hud-tool { font-size: 18px; }
 }
