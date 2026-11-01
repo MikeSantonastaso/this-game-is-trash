@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>This Game Is Trash</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js", "cannon-es": "./vendor/cannon-es.js" } }
+  </script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="hud-top-left">
+      <div class="money-wrap"><div id="hud-money">$0</div></div>
+      <div id="hud-tool"></div>
+    </div>
+    <div id="hud-bottom">
+      <div class="bag">
+        <span class="label">BAG</span>
+        <div class="bar"><div id="hud-bag-fill" class="fill"></div></div>
+        <span id="hud-bag-count">0/6</span>
+      </div>
+      <div class="belt"><span class="label">BELT</span><span id="hud-belt"></span></div>
+    </div>
+    <div id="hud-prompt"></div>
+    <div id="crosshair"></div>
+    <div id="toasts"></div>
+    <div id="help" class="hidden">
+      <b>Controls</b>
+      <div><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Space</kbd> jump</div>
+      <div><kbd>Mouse</kbd> look (click to lock) · <kbd>Arrows</kbd> look · <kbd>Wheel</kbd> zoom</div>
+      <div><kbd>LMB</kbd> pick trash (hold to repeat) / throw held thing</div>
+      <div><kbd>E</kbd> / <kbd>RMB</kbd> grab or drop anything, including Gary</div>
+      <div><kbd>B</kbd> tie bag early · <kbd>G</kbd> throw a bag</div>
+      <div><kbd>F</kbd> sell at dumpster / open shop</div>
+      <div><kbd>R</kbd> flop into a ragdoll (and get up)</div>
+      <div><kbd>H</kbd> toggle this help</div>
+    </div>
+  </div>
+
+  <div id="shop" class="hidden">
+    <div class="shop-panel">
+      <header>
+        <h2>TRASH MART</h2>
+        <div id="shop-money"></div>
+        <button class="close" data-action="close" aria-label="Close">✕</button>
+      </header>
+      <nav id="shop-tabs"></nav>
+      <div id="shop-body"></div>
+      <footer><kbd>F</kbd> / <kbd>Esc</kbd> to close</footer>
+    </div>
+  </div>
+
+  <div id="start">
+    <div class="start-card">
+      <h1>THIS GAME<br />IS <span>TRASH</span></h1>
+      <p>Clean up Dumpy Park one wrapper at a time. Sell bags at the dumpster, buy better gear, and throw Gary the intern into the garbage.</p>
+      <button id="start-btn">Clock in</button>
+      <p class="small">WASD move · Mouse look · LMB pick · E grab · F sell/shop · R ragdoll · H help</p>
+      <p id="start-error" class="error"></p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
