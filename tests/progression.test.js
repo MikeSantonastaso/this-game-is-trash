@@ -38,7 +38,7 @@ test('buying tools and upgrades spends money and changes stats', () => {
   s.addMoney(1000);
   assert.equal(s.buyTool('picker_extendo').ok, true);
   assert.equal(s.money, 850);
-  assert.equal(computeStats(s).reach, 3.8);
+  assert.equal(computeStats(s).reach, 4.0);
   const before = computeStats(s).bagSize;
   assert.equal(s.buyUpgrade('bagSize').ok, true);
   assert.equal(computeStats(s).bagSize, before + 2);

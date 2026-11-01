@@ -47,7 +47,7 @@ export class Hud {
     if (p.isFlopped) return '<kbd>R</kbd> get up';
     if (p.grabber.isHolding) {
       const ud = p.grabber.held.ud;
-      const what = ud.ragdoll ? ud.ragdoll.name : ud.kind === 'bag' ? 'bag' : ud.item?.def.name ?? 'it';
+      const what = ud.ragdoll ? ud.ragdoll.name : ud.kind === 'bag' ? 'bag' : ud.item?.def.name ?? ud.name ?? 'it';
       return `Holding ${what} · <kbd>LMB</kbd> throw · <kbd>E</kbd> drop`;
     }
     if (g.dropOff.isNear(p)) {
