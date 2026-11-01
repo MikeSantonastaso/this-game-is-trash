@@ -1,7 +1,7 @@
 // One camera, several modes sharing the same yaw/pitch from the mouse:
 //   'first'  - on foot, eyes of the player (default)
-//   'chase'  - orbit behind a target. Used while you're a ragdoll, and meant
-//              for driving vehicles later.
+//   'chase'  - orbit behind a target. Used while you're a ragdoll and while
+//              driving (where it swings back behind the truck on its own).
 import * as THREE from 'three';
 
 export class CameraRig {
@@ -20,11 +20,22 @@ export class CameraRig {
   }
 
   look(dx, dy) {
+    if (dx || dy) this.lastLook = performance.now();
     this.yaw -= dx * this.sensitivity;
     this.pitch = THREE.MathUtils.clamp(this.pitch - dy * this.sensitivity, -1.45, 1.35);
   }
 
-  zoom(dir) { this.chaseDistance = THREE.MathUtils.clamp(this.chaseDistance + dir * 0.6, 2.5, 12); }
+  // Driving: swing back behind the vehicle unless the mouse moved recently.
+  follow(dt, yaw) {
+    if (performance.now() - (this.lastLook ?? 0) < 1500) return;
+    let d = yaw - this.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    const k = 1 - Math.exp(-2.5 * dt);
+    this.yaw += d * k;
+    this.pitch += (-0.22 - this.pitch) * k;
+  }
+
+  zoom(dir) { this.chaseDistance = THREE.MathUtils.clamp(this.chaseDistance + dir * 0.6, 2.5, 16); }
 
   setMode(mode) {
     if (mode === this.mode) return;

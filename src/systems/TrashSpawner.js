@@ -1,6 +1,8 @@
-// Spawns trash items around the area from its weighted table and refills over
-// time. Items are light physics bodies so you can kick them, they tumble when
-// a ragdoll lands on them, and they can be thrown into the dumpster.
+// Spawns trash in every unlocked zone from that zone's weighted table and
+// refills over time. Items are light physics bodies so you can kick them, they
+// tumble when a ragdoll lands on them, and they can be thrown into a dumpster.
+// An item's value is baked in when it spawns (base value × zone multiplier),
+// so trash keeps its price wherever you sell it.
 import * as THREE from 'three';
 import { CANNON, GROUP, MASK_ALL } from './PhysicsWorld.js';
 import { TRASH_TYPES, pickWeighted } from '../data/trash.js';
@@ -9,17 +11,23 @@ import { createTrashVisuals } from '../render/TrashModels.js';
 let nextId = 1;
 
 export class TrashSpawner {
-  constructor({ scene, physics, events }, area, layout) {
+  constructor({ scene, physics, events }, layout) {
     this.scene = scene;
     this.physics = physics;
     this.events = events;
-    this.area = area;
     this.layout = layout;
     this.items = [];
     this.flying = [];
-    this.timer = 0;
+    this.zones = new Map(); // zone id -> { zone, region, count, timer }
     this.visuals = this.buildVisuals();
-    for (let i = 0; i < area.trashMax; i++) this.spawn();
+  }
+
+  // Start littering a zone (on load for unlocked zones, and when one unlocks).
+  addZone(zone, region, fill = true) {
+    if (this.zones.has(zone.id) || !region) return;
+    const z = { zone, region, count: 0, timer: 0 };
+    this.zones.set(zone.id, z);
+    if (fill) for (let i = 0; i < zone.trashMax; i++) this.spawn(z);
   }
 
   buildVisuals() {
@@ -36,17 +44,20 @@ export class TrashSpawner {
     return out;
   }
 
-  randomSpot() {
-    const { bounds, obstacles } = this.layout;
-    for (let tries = 0; tries < 30; tries++) {
-      const x = THREE.MathUtils.lerp(bounds.minX, bounds.maxX, Math.random());
-      const z = THREE.MathUtils.lerp(bounds.minZ, bounds.maxZ, Math.random());
+  randomSpot({ rect, accept }) {
+    const { obstacles } = this.layout;
+    for (let tries = 0; tries < 40; tries++) {
+      const x = THREE.MathUtils.lerp(rect.minX, rect.maxX, Math.random());
+      const z = THREE.MathUtils.lerp(rect.minZ, rect.maxZ, Math.random());
+      if (accept && !accept(x, z)) continue;
       if (!obstacles.some((o) => Math.hypot(o.x - x, o.z - z) < o.r)) return { x, z };
     }
-    return { x: 0, z: 0 };
+    return null;
   }
 
-  spawn(typeId = pickWeighted(this.area.trashWeights), pos = this.randomSpot()) {
+  spawn(z, typeId = pickWeighted(z.zone.trashWeights)) {
+    const pos = this.randomSpot(z.region);
+    if (!pos) return null;
     const def = TRASH_TYPES[typeId];
     const vis = this.visuals[typeId];
     const variant = vis.variants[Math.floor(Math.random() * vis.variants.length)];
@@ -68,7 +79,9 @@ export class TrashSpawner {
     const tipped = def.mesh.shape === 'cylinder' && Math.random() < 0.7;
     body.position.set(pos.x, tipped ? vis.half[0] + 0.02 : vis.half[1] + 0.02, pos.z);
     body.quaternion.setFromEuler(tipped ? Math.PI / 2 : 0, Math.random() * Math.PI * 2, 0, 'YXZ');
-    const item = { id: nextId++, type: typeId, def, mesh, body, value: def.value, space: def.space };
+    const value = Math.round(def.value * z.zone.valueMultiplier * 10) / 10;
+    const item = { id: nextId++, type: typeId, def, mesh, body, value, space: def.space, zone: z.zone.id };
+    z.count++;
     body.userData = { kind: 'trash', item, grabbable: true, sellable: true };
     this.physics.add(body, mesh);
     body.sleep();
@@ -91,6 +104,8 @@ export class TrashSpawner {
   detach(item) {
     const i = this.items.indexOf(item);
     if (i >= 0) this.items.splice(i, 1);
+    const z = this.zones.get(item.zone);
+    if (z && i >= 0) z.count--;
     this.physics.remove(item.body);
   }
 
@@ -103,9 +118,10 @@ export class TrashSpawner {
       f.mesh.scale.setScalar(1 - k * 0.8);
       if (k >= 1) { this.scene.remove(f.mesh); this.flying.splice(i, 1); }
     }
-    if (this.items.length < this.area.trashMax) {
-      this.timer += dt;
-      if (this.timer >= this.area.respawnSeconds) { this.timer = 0; this.spawn(); }
+    for (const z of this.zones.values()) {
+      if (z.count >= z.zone.trashMax) continue;
+      z.timer += dt;
+      if (z.timer >= z.zone.respawnSeconds) { z.timer = 0; this.spawn(z); }
     }
   }
 }

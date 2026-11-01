@@ -39,11 +39,45 @@ Three.js and cannon-es are vendored in `/vendor`, so there is no CDN or build in
 | E or Right click | Grab or drop anything physical: trash, bags, **Gary** |
 | B | Tie off your bag early |
 | G | Throw a tied bag (land it in the dumpster to sell it) |
-| F | Sell everything at the dumpster / open Trash Mart |
-| R | Go ragdoll (camera pulls out to watch you tumble) / get back up |
+| F | Use: sell at a dumpster, open Trash Mart, empty a curb bin, unlock a zone at its gate, buy / get in / get out of the truck, load bags into the truck bed |
+| R | Go ragdoll (camera pulls out to watch you tumble) / get back up. In the truck: eject |
+| M | Town map (there's also a minimap in the corner) |
 | H | Toggle the controls panel |
 
-## What's in this first playable
+**Driving the Rusty Pickup:** W/S throttle and reverse, A/D steer, Space brake, E sells the
+whole load when you're parked next to a dumpster, F gets out.
+
+## The map and zones
+
+One big open map (about 500 m × 425 m) split into zones. You can see almost all of it
+from the start, but most of it is fenced off. Each zone opens when you meet its requirements,
+which are shown live (✓ / ✗) on a billboard at every gate. The full design is in
+[docs/PROGRESSION.md](docs/PROGRESSION.md).
+
+| Zone | To unlock | Trash pays |
+| --- | --- | --- |
+| 1. Dumpy Park | free | 1× |
+| 2. Maple Court (small neighborhood) | $1,000 · own the Extendo-Picker · 20 bags sold | 1.6× |
+| 3. Oakridge Heights (big neighborhood) | $6,000 · own the Rusty Pickup · own the Double-Claw | 2.5× |
+| 4. Downtown (city skyline) | $50,000 · own the Garbage Truck · own the Trash Magnet (coming soon) | 4× |
+
+- **Gates and fences**: chain-link construction fence along zone borders, with a boom
+  barrier, guard booth and requirements billboard wherever a road crosses. Walk up and press F
+  once the sign is all green. The boom lifts and the fences between open zones come down.
+  You can also unlock zones from the Trash Mart's Zones tab.
+- **Neighborhoods**: ~300 houses along real streets with sidewalks, driveways, cul-de-sacs
+  and street trees, each with its own paint job. Most houses have a **curbside bin**: press F
+  to dump the whole bin into your bag. Bins refill over time.
+- **The Rusty Pickup** ($4,000, parked at the motor pool on Park Ave): an arcade truck that
+  bumps into houses, launches Gary and goes off the ramp. The bed holds 12 bags: throw bags
+  in (G) or press F at the tailgate. Park at any dumpster and press E to sell the load.
+  Gary and friends can ride in the bed until they fall out.
+- **Three dumpsters** (park, Maple Court, Oakridge) and a **Trash Mart Outlet** in Oakridge.
+  Trash keeps the value of the zone it came from.
+- **HUD**: current zone and its pay multiplier, a minimap, "now entering" banners, a full
+  map on M.
+
+## What was in the first playable
 
 - **First person** on foot: you see your gloved hands and the picker. The camera
   switches to a chase view when you ragdoll; the same chase mode is meant for driving later.
@@ -89,18 +123,23 @@ vendor/                    three.module.min.js, three addons (loaders, Sky, post
 src/
   main.js                  boot
   core/      Game.js (composition root + loop), GameState.js (progression, pure),
+             requirements.js (zone unlock checks, pure),
              Assets.js (glTF loading, normalizing, instancing), EventBus.js, SaveSystem.js
-  data/      trash.js, tools.js, upgrades.js, areas.js, properties.js, models.js   <- tune the game here
+  data/      zones.js (map, zones, roads, gates), trash.js, tools.js, upgrades.js,
+             properties.js, models.js                                  <- tune the game here
   systems/   PhysicsWorld.js (cannon wrapper, collision groups), Inventory.js (bags, pure),
-             Stats.js, TrashSpawner.js, LooseBags.js, DropOff.js, CameraRig.js (first/chase)
+             Stats.js, TrashSpawner.js (per zone), LooseBags.js, DropOff.js (all dumpsters),
+             Zones.js (locks, gates, signs), CurbBins.js, CameraRig.js (first/chase)
   render/    Graphics.js (renderer, sky, lights, post), Surfaces.js (PBR ground materials),
              GrassField.js (instanced wind grass), TrashModels.js (procedural trash meshes)
-  entities/  Player.js, Ragdoll.js (skinned), Viewmodel.js (first-person hands + picker)
+  entities/  Player.js, Ragdoll.js (skinned), Viewmodel.js (first-person hands + picker), Truck.js
   tools/     Picker.js, Grabber.js
   input/     Input.js (raw devices), LocalInputSource.js (-> PlayerIntent)
-  world/     AreaBuilder.js, builders/park.js, textures.js
-  ui/        Hud.js, ShopUI.js, nameTag.js
-tests/       node --test unit tests for progression and bag logic (npm test)
+  world/     World.js (builds the whole map), kit.js (instancing, batching, colliders),
+             builders/ roads, park, neighborhood, downtown, borders (fences + gates), structures
+  docs/      PROGRESSION.md: zones, requirements, tiers, economy
+  ui/        Hud.js, ShopUI.js, MapUI.js (minimap + full map), nameTag.js
+tests/       node --test unit tests for progression, bags, zones and unlocks (npm test)
 ```
 
 Design rules that keep co-op and the engine port cheap:
@@ -118,8 +157,11 @@ Design rules that keep co-op and the engine port cheap:
   `PhysicsWorld`, `Ragdoll` and `Grabber`. Every grabbable body carries `userData`
   (`kind`, `grabbable`, `sellable`, `ragdoll`), which is how pickers, hands and the
   dumpster decide what to do with it.
-- **Areas are builders.** `world/builders/<area>.js` creates meshes and colliders and
-  returns a layout (spawn, dumpster trigger, shop, spawn bounds). New areas plug in there.
+- **The map is data.** Zones, streets, gates and borders live in `src/data/zones.js`. The
+  builders turn them into meshes and colliders; another suburb is mostly a data change
+  (see `world/builders/neighborhood.js`).
+- **Big but cheap.** Each model is merged into one vertex-colored geometry and drawn as
+  instanced chunks; chunks far from the camera are hidden behind the fog.
 
 ## Roadmap
 
@@ -138,16 +180,17 @@ Design rules that keep co-op and the engine port cheap:
 - [ ] Online co-op (WebRTC/WebSocket host-authoritative): sync GameState + player
       intents; ragdolls simulated by the host
 
-**Areas**
+**Zones**
 1. Dumpy Park (starting area) ✅
-2. Small Neighborhood: curbside bins, lawns, first vehicle
-3. Big Neighborhood: whole blocks, garbage truck routes
-4. The City: alleys, dumpsters, fleet management
+2. Maple Court, small neighborhood: curbside bins, cul-de-sacs ✅
+3. Oakridge Heights, big neighborhood: whole blocks, truck routes ✅
+4. Downtown: skyline and gates in place; alleys, commercial dumpsters, fleet management to come
+5. The Dump: own it for passive income
 
 **Equipment scaling**
 - Pickers: Standard → Extendo → Double-Claw → Trash Magnet → leaf-vac backpack → trash cannon
 - Bags → contractor bags → wheelie bin you push around
-- Vehicles: wheelbarrow → rusty pickup (friends ride in the bed) → garbage truck
+- Vehicles: wheelbarrow → rusty pickup (friends ride in the bed) ✅ → garbage truck
 
 **Ownership**
 - Garage: store vehicles/tools, cosmetic outfits

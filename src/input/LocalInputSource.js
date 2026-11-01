@@ -36,6 +36,8 @@ export class LocalInputSource {
 
     return {
       move: { x: move.x, z: move.z },
+      axes: { x: fx, y: fz }, // raw stick/WASD, for driving
+      brake: i.down('Space'),
       jump: i.pressed('Space'),
       sprint: i.down('ShiftLeft') || i.down('ShiftRight'),
       pick: i.clicked(0),

@@ -6,12 +6,23 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MODELS } from '../data/models.js';
 
 export class Assets {
   constructor() {
     this.loader = new GLTFLoader();
     this.models = new Map();
+    this.merged = new Map();
+    this.flatMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
+    // Per-instance color only tints "paintable" parts (house walls), so every
+    // house can get its own paint job while roofs, doors and windows stay put.
+    this.flatMaterial.onBeforeCompile = (shader) => {
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute float paint;')
+        .replace('#include <color_vertex>', THREE.ShaderChunk.color_vertex
+          .replace('vColor.xyz *= instanceColor.xyz;', 'vColor.xyz *= mix(vec3(1.0), instanceColor.xyz, paint);'));
+    };
   }
 
   async loadAll(onProgress = () => {}) {
@@ -92,23 +103,48 @@ export class Assets {
     return copy;
   }
 
-  // Many copies of a static model as InstancedMeshes (cheap trees, grass...).
-  // matrices: array of THREE.Matrix4 placing each copy.
-  instanced(id, matrices, { castShadow = true } = {}) {
+  // One geometry per model with each part's material color baked into vertex
+  // colors. These packs use plain-colored materials only, so a whole house or
+  // tree becomes a single draw call instead of one per material.
+  // Materials named in PAINTABLE become white and take the instance color.
+  mergedGeometry(id) {
+    if (this.merged.has(id)) return this.merged.get(id);
+    const PAINTABLE = /^(Bricks|Main)$/;
     const src = this.models.get(id);
-    const group = new THREE.Group();
     src.updateMatrixWorld(true);
+    const parts = [];
     src.traverse((o) => {
       if (!o.isMesh || o.isSkinnedMesh) return;
-      const geo = o.geometry.clone().applyMatrix4(o.matrixWorld);
-      const inst = new THREE.InstancedMesh(geo, o.material, matrices.length);
-      matrices.forEach((m, i) => inst.setMatrixAt(i, m));
-      inst.castShadow = castShadow;
-      inst.receiveShadow = true;
-      inst.computeBoundingSphere();
-      group.add(inst);
+      const g0 = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', g0.attributes.position);
+      g.setAttribute('normal', g0.attributes.normal);
+      g.applyMatrix4(o.matrixWorld);
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+      const paint = PAINTABLE.test(mat.name) ? 1 : 0;
+      const c = paint ? new THREE.Color(0.9, 0.9, 0.9) : mat.color;
+      const n = g.attributes.position.count;
+      const cols = new Float32Array(n * 3);
+      for (let i = 0; i < cols.length; i += 3) { cols[i] = c.r; cols[i + 1] = c.g; cols[i + 2] = c.b; }
+      g.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+      g.setAttribute('paint', new THREE.BufferAttribute(new Float32Array(n).fill(paint), 1));
+      parts.push(g);
     });
-    return group;
+    const geo = mergeGeometries(parts);
+    this.merged.set(id, geo);
+    return geo;
+  }
+
+  // Many copies of a static model as one InstancedMesh (houses, trees...).
+  // matrices: array of THREE.Matrix4 placing each copy. A matrix may carry a
+  // .color (THREE.Color) to tint that copy (used for house paint).
+  instanced(id, matrices, { castShadow = true } = {}) {
+    const inst = new THREE.InstancedMesh(this.mergedGeometry(id), this.flatMaterial, matrices.length);
+    matrices.forEach((m, i) => { inst.setMatrixAt(i, m); if (m.color) inst.setColorAt(i, m.color); });
+    inst.castShadow = castShadow;
+    inst.receiveShadow = true;
+    inst.computeBoundingSphere();
+    return inst;
   }
 
   size(id) { return this.models.get(id)?.userData.size ?? new THREE.Vector3(1, 1, 1); }

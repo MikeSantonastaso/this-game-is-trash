@@ -65,12 +65,6 @@ test('save data round-trips and tolerates missing fields', () => {
   assert.equal(partial.equippedTool, 'picker_basic');
 });
 
-test('coming-soon areas cannot be bought yet', () => {
-  const s = new GameState();
-  s.addMoney(1e9);
-  assert.equal(s.buyArea('small_hood').reason, 'soon');
-});
-
 test('weighted trash table only returns known types', () => {
   const seen = new Set();
   for (let i = 0; i < 500; i++) seen.add(pickWeighted({ a: 1, b: 3 }));
