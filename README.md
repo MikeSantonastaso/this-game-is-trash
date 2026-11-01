@@ -22,7 +22,8 @@ npm start          # zero-dependency static server -> http://localhost:8080
 
 Any static server works (`python3 -m http.server`, VS Code Live Server...). Opening
 `index.html` straight from disk won't work because browsers block ES modules on `file://`.
-On a slow laptop, add `?quality=low` to the URL to turn off shadows.
+On a slow laptop, add `?quality=low` to the URL. It turns off shadows and post-processing
+and thins the grass.
 
 **GitHub Pages**: Settings → Pages → *Deploy from a branch* → `main` / `(root)`.
 Three.js and cannon-es are vendored in `/vendor`, so there is no CDN or build involved.
@@ -69,6 +70,13 @@ Three.js and cannon-es are vendored in `/vendor`, so there is no CDN or build in
 - **Physics grabbing**: a kinematic "hand" joined to the grabbed body with a
   point-to-point constraint, so held things swing and dangle. This is the same
   mechanism planned for grabbing friends in co-op and for the truck's lifting arm.
+- **Look**: a physical sky with matching environment light, soft shadows, ambient
+  occlusion (GTAO), light bloom, ACES tone mapping and a color grade. Ground, paths, road and
+  paving use real PBR textures (ambientCG, CC0). Lawns and meadows are instanced grass tufts
+  swaying in the wind. Trash is modelled (branded cans, labelled bottles, cups with lids,
+  foil wrappers, pizza boxes, tyres) with a few variants each. The HUD uses rounded navy
+  panels: a bag-fill ring and belt in the top left, money in the top right, the tool in the
+  bottom left.
 - **Saving** to localStorage (autosave every 10s and after purchases/sales).
 
 ## Architecture
@@ -76,7 +84,8 @@ Three.js and cannon-es are vendored in `/vendor`, so there is no CDN or build in
 ```
 index.html, style.css      page, HUD and shop markup
 assets/models/             CC0 glTF models (see assets/CREDITS.md)
-vendor/                    three.module.min.js, GLTFLoader/SkeletonUtils, cannon-es.js (npm run vendor)
+assets/textures/           CC0 PBR textures (color, normal, roughness)
+vendor/                    three.module.min.js, three addons (loaders, Sky, post-processing), cannon-es.js (npm run vendor)
 src/
   main.js                  boot
   core/      Game.js (composition root + loop), GameState.js (progression, pure),
@@ -84,6 +93,8 @@ src/
   data/      trash.js, tools.js, upgrades.js, areas.js, properties.js, models.js   <- tune the game here
   systems/   PhysicsWorld.js (cannon wrapper, collision groups), Inventory.js (bags, pure),
              Stats.js, TrashSpawner.js, LooseBags.js, DropOff.js, CameraRig.js (first/chase)
+  render/    Graphics.js (renderer, sky, lights, post), Surfaces.js (PBR ground materials),
+             GrassField.js (instanced wind grass), TrashModels.js (procedural trash meshes)
   entities/  Player.js, Ragdoll.js (skinned), Viewmodel.js (first-person hands + picker)
   tools/     Picker.js, Grabber.js
   input/     Input.js (raw devices), LocalInputSource.js (-> PlayerIntent)

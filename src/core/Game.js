@@ -8,6 +8,7 @@ import { PhysicsWorld } from '../systems/PhysicsWorld.js';
 import { computeStats } from '../systems/Stats.js';
 import { CameraRig } from '../systems/CameraRig.js';
 import { Assets } from './Assets.js';
+import { Graphics } from '../render/Graphics.js';
 import { Viewmodel } from '../entities/Viewmodel.js';
 import { CANNON, GROUP, MASK_ALL } from '../systems/PhysicsWorld.js';
 import { TrashSpawner } from '../systems/TrashSpawner.js';
@@ -49,32 +50,17 @@ export class Game {
     });
 
     // ---- Rendering ----
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    // ?quality=low turns off shadows and high-DPI rendering for weaker machines.
+    // ?quality=low turns off shadows, post-processing and most grass for weaker machines.
     this.lowQuality = new URLSearchParams(location.search).get('quality') === 'low';
-    this.renderer.setPixelRatio(this.lowQuality ? 1 : Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = !this.lowQuality;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0xa8d4f5);
-    this.scene.fog = new THREE.Fog(0xc4e2f7, 70, 320);
-    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 1200);
-    this.scene.add(this.camera); // the first-person hands are parented to it
-    this.scene.add(new THREE.HemisphereLight(0xdff1ff, 0x4a6b2a, 1.4));
-    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0005;
-    Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 140 });
-    this.scene.add(sun, sun.target);
-    this.sun = sun;
-    this.sunOffset = new THREE.Vector3(30, 50, 20);
+    this.graphics = new Graphics(canvas, { lowQuality: this.lowQuality });
+    this.renderer = this.graphics.renderer;
+    this.scene = this.graphics.scene;
+    this.camera = this.graphics.camera;
 
     // ---- World ----
     this.physics = new PhysicsWorld();
     this.area = getArea(this.state.currentArea);
-    const ctx = { scene: this.scene, physics: this.physics, events: this.events, assets: this.assets };
+    const ctx = { scene: this.scene, physics: this.physics, events: this.events, assets: this.assets, graphics: this.graphics };
     this.layout = buildArea(ctx, this.area);
     this.spawner = new TrashSpawner(ctx, this.area, this.layout);
     this.looseBags = new LooseBags(ctx);
@@ -179,10 +165,7 @@ export class Game {
   respawnGaryLater(seconds) { this.garyRespawnTimer = seconds; }
 
   resize() {
-    const w = window.innerWidth, h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.graphics.resize(window.innerWidth, window.innerHeight);
   }
 
   start() {
@@ -224,15 +207,13 @@ export class Game {
     const me = this.localPlayer;
     this.cameraRig.setMode(me.isFlopped ? 'chase' : 'first');
     this.cameraRig.update(dt, me.cameraTarget(), me.grounded && !me.isFlopped ? me.horizontalSpeed() : 0);
-    const focus = me.cameraTarget();
-    this.sun.target.position.set(Math.round(focus.x), 0, Math.round(focus.z));
-    this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
+    this.graphics.follow(me.cameraTarget());
     this.hud.update(dt);
 
     this.saveTimer += dt;
     if (this.saveTimer > 10) { this.saveTimer = 0; this.save(); }
 
-    this.renderer.render(this.scene, this.camera);
+    this.graphics.render(dt);
     this.input.endFrame();
   }
 

@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { CANNON, GROUP, MASK_ALL } from './PhysicsWorld.js';
 import { TRASH_TYPES, pickWeighted } from '../data/trash.js';
+import { createTrashVisuals } from '../render/TrashModels.js';
 
 let nextId = 1;
 
@@ -22,28 +23,15 @@ export class TrashSpawner {
   }
 
   buildVisuals() {
+    const models = createTrashVisuals();
     const out = {};
     for (const def of Object.values(TRASH_TYPES)) {
       const m = def.mesh;
-      let geo, half;
-      if (m.shape === 'box') {
-        geo = new THREE.BoxGeometry(...m.size);
-        half = m.size.map((s) => Math.max(s / 2, 0.04));
-      } else if (m.shape === 'cylinder') {
-        geo = new THREE.CylinderGeometry(m.radiusTop, m.radiusBottom, m.height, 12);
-        const r = Math.max(m.radiusTop, m.radiusBottom);
-        half = [r, m.height / 2, r];
-      } else {
-        geo = new THREE.TorusGeometry(m.radius, m.tube, 10, 20);
-        geo.rotateX(Math.PI / 2);
-        half = [m.radius + m.tube, m.tube, m.radius + m.tube];
-      }
-      out[def.id] = {
-        geo,
-        half,
-        mat: new THREE.MeshStandardMaterial({ color: m.color, roughness: 0.6, metalness: def.id === 'can' ? 0.5 : 0 }),
-        accent: new THREE.MeshStandardMaterial({ color: m.accent, roughness: 0.6 }),
-      };
+      let half;
+      if (m.shape === 'box') half = m.size.map((s) => Math.max(s / 2, 0.04));
+      else if (m.shape === 'cylinder') { const r = Math.max(m.radiusTop, m.radiusBottom); half = [r, m.height / 2, r]; }
+      else half = [m.radius + m.tube, m.tube, m.radius + m.tube];
+      out[def.id] = { half, variants: models[def.id] };
     }
     return out;
   }
@@ -61,12 +49,9 @@ export class TrashSpawner {
   spawn(typeId = pickWeighted(this.area.trashWeights), pos = this.randomSpot()) {
     const def = TRASH_TYPES[typeId];
     const vis = this.visuals[typeId];
-    const mesh = new THREE.Mesh(vis.geo, vis.mat);
-    mesh.castShadow = true;
-    // A little accent band (label on cans/bottles, sauce on pizza boxes).
-    const band = new THREE.Mesh(vis.geo, vis.accent);
-    band.scale.set(1.02, 0.3, 1.02);
-    mesh.add(band);
+    const variant = vis.variants[Math.floor(Math.random() * vis.variants.length)];
+    const mesh = new THREE.Group();
+    mesh.add(variant.clone());
     this.scene.add(mesh);
 
     const body = new CANNON.Body({

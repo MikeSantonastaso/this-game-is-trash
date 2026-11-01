@@ -7,7 +7,9 @@
 // the game needs (spawn, dumpster, shop, trash spawn bounds, obstacles).
 import * as THREE from 'three';
 import { CANNON, GROUP, MASK_ALL } from '../../systems/PhysicsWorld.js';
-import { signTexture, grassTexture } from '../textures.js';
+import { signTexture } from '../textures.js';
+import { createSurfaces, planarUV } from '../../render/Surfaces.js';
+import { createGrassField } from '../../render/GrassField.js';
 
 // Deterministic RNG so the world looks the same every visit.
 function mulberry32(seed) {
@@ -27,7 +29,8 @@ const CROSS_X = 34;          // side street heading into the neighborhood
 const WALK_RADIUS = 125;
 
 export function buildPark(ctx, area) {
-  const { scene, physics, assets } = ctx;
+  const { scene, physics, assets, graphics } = ctx;
+  const surf = createSurfaces();
   const rng = mulberry32(1337);
   const rand = (a, b) => a + rng() * (b - a);
   const pick = (arr) => arr[Math.floor(rng() * arr.length)];
@@ -58,10 +61,13 @@ export function buildPark(ctx, area) {
     scene.add(m);
     return m;
   };
-  const flat = (w, d, x, z, material, y = 0.01) => {
-    const p = new THREE.Mesh(new THREE.PlaneGeometry(w, d), material);
-    p.rotation.x = -Math.PI / 2;
-    p.position.set(x, y, z);
+  // Flat ground pieces with world-space UVs (tile = meters per texture repeat).
+  const flat = (w, d, x, z, material, y = 0.01, tile = 4) => {
+    const g = new THREE.PlaneGeometry(w, d);
+    g.rotateX(-Math.PI / 2);
+    g.translate(x, y, z);
+    if (material.map) planarUV(g, tile);
+    const p = new THREE.Mesh(g, material);
     p.receiveShadow = true;
     scene.add(p);
     return p;
@@ -76,33 +82,20 @@ export function buildPark(ctx, area) {
     return Math.abs(x) < 2 + pad || Math.abs(z - 4) < 2 + pad || (ring > 16.5 - pad && ring < 20.5 + pad);
   };
 
-  // ---- Sky dome ----
-  const skyCanvas = document.createElement('canvas');
-  skyCanvas.width = 2; skyCanvas.height = 256;
-  const sg = skyCanvas.getContext('2d');
-  const grad = sg.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, '#3f86d6'); grad.addColorStop(0.55, '#8cc4f0'); grad.addColorStop(1, '#dbeefa');
-  sg.fillStyle = grad; sg.fillRect(0, 0, 2, 256);
-  const skyTex = new THREE.CanvasTexture(skyCanvas);
-  skyTex.colorSpace = THREE.SRGBColorSpace;
-  const sky = new THREE.Mesh(new THREE.SphereGeometry(600, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false, depthWrite: false }));
-  sky.renderOrder = -1;
-  scene.add(sky);
-
   // ---- Ground: flat where you play, rolling hills toward the horizon ----
-  const grass = grassTexture();
-  grass.repeat.set(160, 160);
-  const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900, 90, 90), mat(0xffffff, { map: grass }));
-  ground.rotation.x = -Math.PI / 2;
-  const gpos = ground.geometry.attributes.position;
+  const groundGeo = new THREE.PlaneGeometry(1400, 1400, 140, 140);
+  groundGeo.rotateX(-Math.PI / 2);
+  const gpos = groundGeo.attributes.position;
   for (let i = 0; i < gpos.count; i++) {
-    const x = gpos.getX(i), y = gpos.getY(i);
-    const r = Math.hypot(x, y);
-    const k = THREE.MathUtils.smoothstep(r, 150, 260);
-    const h = (Math.sin(x * 0.021) * Math.cos(y * 0.017) * 0.5 + 0.5) * 30 + Math.sin(x * 0.05 + y * 0.03) * 6;
-    gpos.setZ(i, k * h);
+    const x = gpos.getX(i), z = gpos.getZ(i);
+    const r = Math.hypot(x, z);
+    const k = THREE.MathUtils.smoothstep(r, 150, 300);
+    const h = (Math.sin(x * 0.021) * Math.cos(z * 0.017) * 0.5 + 0.5) * 40 + Math.sin(x * 0.05 + z * 0.03) * 8;
+    gpos.setY(i, k * h);
   }
-  ground.geometry.computeVertexNormals();
+  groundGeo.computeVertexNormals();
+  planarUV(groundGeo, 3.5);
+  const ground = new THREE.Mesh(groundGeo, surf.grass);
   ground.receiveShadow = true;
   scene.add(ground);
   const groundBody = new CANNON.Body({ mass: 0, material: physics.materials.ground, collisionFilterGroup: GROUP.GROUND, collisionFilterMask: MASK_ALL });
@@ -111,9 +104,9 @@ export function buildPark(ctx, area) {
   physics.add(groundBody);
 
   // ---- Streets ----
-  const asphalt = mat(0x3b3d40);
-  const sidewalk = mat(0xb9b5ad);
-  const lineMat = new THREE.MeshBasicMaterial({ color: 0xf2d24b });
+  const asphalt = surf.asphalt;
+  const sidewalk = surf.concrete;
+  const lineMat = new THREE.MeshStandardMaterial({ color: 0xe9c74a, roughness: 0.6 });
   flat(320, ROAD_HALF * 2, 0, ROAD_Z, asphalt, 0.02);
   flat(320, WALK_HALF, 0, ROAD_Z + ROAD_HALF + WALK_HALF / 2, sidewalk, 0.04);
   flat(320, WALK_HALF, 0, ROAD_Z - ROAD_HALF - WALK_HALF / 2, sidewalk, 0.04);
@@ -145,7 +138,7 @@ export function buildPark(ctx, area) {
   const tints = [0xf7f1e3, 0xf3d9b1, 0xc9dcf0, 0xf2c4b5, 0xd8ebc4, 0xe0d2f0, 0xfff3c4];
   const tintModel = (model, tint) => model.traverse((o) => {
     if (o.isMesh && o.material) {
-      const tintOne = (m) => { const c = m.clone(); c.color.lerp(new THREE.Color(tint), 0.35).multiplyScalar(1.25); return c; };
+      const tintOne = (m) => { const c = m.clone(); c.color.lerp(new THREE.Color(tint), 0.18); return c; };
       o.material = Array.isArray(o.material) ? o.material.map(tintOne) : tintOne(o.material);
     }
   });
@@ -173,18 +166,20 @@ export function buildPark(ctx, area) {
   }
 
   // ---- Park paths ----
-  const pathMat = mat(0xcdb893);
+  const pathMat = surf.dirt;
   flat(3, PARK.maxZ - PARK.minZ + 8, 0, (PARK.minZ + PARK.maxZ) / 2 - 4, pathMat);
   flat(PARK.maxX - PARK.minX, 3, 0, 4, pathMat);
-  const loop = new THREE.Mesh(new THREE.RingGeometry(17, 20, 48), pathMat);
-  loop.rotation.x = -Math.PI / 2;
-  loop.position.set(0, 0.012, 4);
+  const loopGeo = new THREE.RingGeometry(17, 20, 64);
+  loopGeo.rotateX(-Math.PI / 2);
+  loopGeo.translate(0, 0.012, 4);
+  planarUV(loopGeo, 4);
+  const loop = new THREE.Mesh(loopGeo, pathMat);
   loop.receiveShadow = true;
   scene.add(loop);
 
   // ---- Dumpster (the drop-off). Open-top steel bin on a concrete pad. ----
   const dumpPos = new THREE.Vector3(-10, 0, -30);
-  flat(7, 5, dumpPos.x, dumpPos.z, mat(0x9a9a96), 0.03);
+  flat(7, 5, dumpPos.x, dumpPos.z, surf.paving, 0.03, 2.5);
   const dumpMat = mat(0x2f7d4f, { metalness: 0.4, roughness: 0.55 });
   const W = 3.4, D = 2.2, H = 1.5, T = 0.12;
   const box = (size, pos, material = dumpMat) => {
@@ -306,7 +301,17 @@ export function buildPark(ctx, area) {
   scatter(['rock1', 'rock2', 'rock3'], 14, parkRegion, { pad: 1, collide: 0.4 });
   scatter(['stump', 'log'], 5, parkRegion, { pad: 1.5, collide: 0.5 });
   scatter(['flowers', 'plant1', 'plant2'], 120, parkRegion, { pad: 0.2, shadow: false });
-  scatter(['grass1', 'grass2', 'grass3'], 500, { minX: -110, maxX: 110, minZ: -36, maxZ: 110 }, { pad: 0, shadow: false });
+  scatter(['grass1', 'grass2', 'plant1'], 120, { minX: -110, maxX: 110, minZ: -36, maxZ: 110, minR: 50 }, { pad: 0, shadow: false });
+
+  // ---- Grass blades: a mowed lawn in the park, longer meadow grass around it ----
+  const clear = (x, z, pad) => !onRoad(x, z, 0.3) && !onPath(x, z, pad) && !blocked(x, z, -0.6)
+    && !(Math.abs(x - dumpPos.x) < 4 && Math.abs(z - dumpPos.z) < 3);
+  const inPark = (x, z) => x > PARK.minX && x < PARK.maxX && z > PARK.minZ && z < PARK.maxZ;
+  scene.add(createGrassField([
+    { region: PARK, density: 8, height: [0.1, 0.2], accept: (x, z) => clear(x, z, -0.4) },
+    { region: { minX: -85, maxX: 85, minZ: -36, maxZ: 85 }, density: 1.6, height: [0.25, 0.5],
+      accept: (x, z) => !inPark(x, z) && clear(x, z, 0) && Math.hypot(x, z) < 90 },
+  ], { time: graphics.time, densityScale: graphics.lowQuality ? 0.3 : 1, rng }));
 
   // ---- Meadow and forest out to the horizon (decor, no colliders needed past the walk radius) ----
   scatter(['tree1', 'tree2', 'tree3', 'tree4', 'tree5'], 70, { minX: -125, maxX: 125, minZ: -30, maxZ: 125, minR: 62 }, { pad: 2, collide: 0.4, scale: [0.9, 1.4] });

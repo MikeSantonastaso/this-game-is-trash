@@ -5,7 +5,7 @@ export class Hud {
   constructor(game) {
     this.game = game;
     this.el = {
-      money: $('hud-money'), bagFill: $('hud-bag-fill'), bagCount: $('hud-bag-count'),
+      money: $('hud-money'), bagRing: $('hud-bag-ring'), bagPanel: $('hud-bag'), bagCount: $('hud-bag-count'),
       belt: $('hud-belt'), tool: $('hud-tool'), prompt: $('hud-prompt'),
       toasts: $('toasts'), crosshair: $('crosshair'), help: $('help'),
     };
@@ -27,12 +27,13 @@ export class Hud {
     // Count money up smoothly.
     this.shownMoney += (state.money - this.shownMoney) * Math.min(1, dt * 8);
     if (Math.abs(state.money - this.shownMoney) < 0.5) this.shownMoney = state.money;
-    this.set('money', this.el.money, `$${Math.round(this.shownMoney).toLocaleString()}`);
+    this.set('money', this.el.money, Math.round(this.shownMoney).toLocaleString());
 
     const inv = p.inventory;
     const pct = Math.min(100, (inv.current.used / inv.capacity) * 100);
-    this.set('bagFill', this.el.bagFill.style, `${pct}%`, 'width');
-    this.set('bagFull', this.el.bagFill, inv.current.used >= inv.capacity ? 'fill full' : 'fill', 'className');
+    this.set('bagRing', this.el.bagRing.style, `${pct} 100`, 'strokeDasharray');
+    this.set('bagRingOn', this.el.bagRing.style, pct > 0 ? '1' : '0', 'opacity');
+    this.set('bagFull', this.el.bagPanel, inv.current.used >= inv.capacity ? 'panel full' : 'panel', 'className');
     this.set('bagCount', this.el.bagCount, `${inv.current.used}/${inv.capacity}`);
     const belt = Array.from({ length: inv.slots }, (_, i) => `<span class="slot ${i < inv.tied.length ? 'on' : ''}"></span>`).join('');
     this.set('belt', this.el.belt, belt, 'innerHTML');
