@@ -4,7 +4,8 @@
 // value  - base sale price in dollars
 // space  - how much room it takes in a bag (bag size is upgradeable)
 // mass   - physics mass in kg (affects how far it flies when kicked/thrown)
-// mesh   - primitive description the renderer turns into geometry
+// mesh   - collision shape (and look, for procedural trash)
+// models - optional model ids from data/models.js to use instead of procedural meshes
 export const TRASH_TYPES = {
   wrapper: {
     id: 'wrapper', name: 'Candy Wrapper', value: 1, space: 1, mass: 0.1,
@@ -25,6 +26,14 @@ export const TRASH_TYPES = {
   pizzaBox: {
     id: 'pizzaBox', name: 'Greasy Pizza Box', value: 6, space: 2, mass: 0.6,
     mesh: { shape: 'box', size: [0.6, 0.08, 0.6], color: 0xc8a165, accent: 0xb33a3a },
+  },
+  beer: {
+    id: 'beer', name: 'Empty Beer Can', value: 2, space: 1, mass: 0.2, models: ['beerCanOpen', 'beerCanCrushed', 'beerCan'],
+    mesh: { shape: 'cylinder', radiusTop: 0.07, radiusBottom: 0.07, height: 0.2, color: 0xb22222, accent: 0xdddddd },
+  },
+  gasCan: {
+    id: 'gasCan', name: 'Leaky Gas Can', value: 14, space: 3, mass: 3, models: ['gasCan'],
+    mesh: { shape: 'box', size: [0.36, 0.42, 0.14], color: 0x8b1a1a, accent: 0x222222 },
   },
   tire: {
     id: 'tire', name: 'Old Tire', value: 25, space: 4, mass: 8,

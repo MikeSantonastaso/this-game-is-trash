@@ -1,42 +1,45 @@
-// Composition root. Builds the renderer, physics, world, players and UI, then
-// runs the loop. Gameplay systems are separate modules wired together here.
+// Composition root and main loop. Every machine runs one Game: the static
+// block, the local player, rendering, sound and UI. The host's Game also runs
+// HostSim (the authoritative simulation); a client's Game mirrors the host from
+// snapshots instead. See README "Multiplayer" for the message flow.
 import * as THREE from 'three';
 import { EventBus } from './EventBus.js';
 import { GameState } from './GameState.js';
 import { SaveSystem } from './SaveSystem.js';
-import { PhysicsWorld } from '../systems/PhysicsWorld.js';
+import { Assets } from './Assets.js';
+import { PhysicsWorld, CANNON, GROUP } from '../systems/PhysicsWorld.js';
 import { computeStats } from '../systems/Stats.js';
 import { CameraRig } from '../systems/CameraRig.js';
-import { Assets } from './Assets.js';
 import { Graphics } from '../render/Graphics.js';
 import { Viewmodel } from '../entities/Viewmodel.js';
-import { CANNON, GROUP, MASK_ALL } from '../systems/PhysicsWorld.js';
-import { TrashSpawner } from '../systems/TrashSpawner.js';
-import { LooseBags } from '../systems/LooseBags.js';
-import { DropOff } from '../systems/DropOff.js';
+import { LocalPlayer } from '../entities/LocalPlayer.js';
+import { Avatar } from '../entities/Avatar.js';
+import { Truck } from '../entities/Truck.js';
+import { PART_ORDER } from '../entities/Ragdoll.js';
 import { Input } from '../input/Input.js';
 import { LocalInputSource } from '../input/LocalInputSource.js';
-import { Player } from '../entities/Player.js';
-import { Ragdoll } from '../entities/Ragdoll.js';
-import { buildWorld } from '../world/World.js';
-import { ZONES, getZone } from '../data/zones.js';
-import { Zones } from '../systems/Zones.js';
-import { CurbBins } from '../systems/CurbBins.js';
-import { Truck } from '../entities/Truck.js';
-import { getProperty } from '../data/properties.js';
+import { buildBlock } from '../world/Block.js';
+import { EntityFactory } from '../net/Entities.js';
+import { createNet } from '../net/Net.js';
+import { SampleBuffer, Clock } from '../net/Interp.js';
+import { HostSim } from '../sim/HostSim.js';
+import { Sfx } from '../audio/Sfx.js';
+import { Fx } from '../render/Fx.js';
 import { Hud } from '../ui/Hud.js';
-import { MapUI } from '../ui/MapUI.js';
 import { ShopUI } from '../ui/ShopUI.js';
-import { nameTag } from '../ui/nameTag.js';
+import * as B from '../data/block.js';
 
 const IDLE_INTENT = {
   move: { x: 0, z: 0 }, jump: false, sprint: false, pick: false, pickHeld: false,
-  grab: false, flop: false, interact: false, tie: false, throwBag: false,
+  grab: false, flop: false, interact: false, tie: false, throwBag: false, punch: false,
   axes: { x: 0, y: 0 }, brake: false,
 };
+const POSE_INTERVAL = 1 / 30;
+const PLAYER_COLORS = ['#ffd23f', '#5ad1ff', '#ff6b9a', '#7dff6b', '#c49bff', '#ffa94d'];
+const QUATS_E = [3];
+const QUATS_R = PART_ORDER.map((_, i) => i * 7 + 3);
 
 export class Game {
-  // Async because models load first: `const game = await Game.create(canvas, onProgress)`
   static async create(canvas, onProgress) {
     const assets = new Assets();
     await assets.loadAll(onProgress);
@@ -48,76 +51,41 @@ export class Game {
     this.assets = assets;
     this.events = new EventBus();
     this.state = new GameState(this.events);
-    this.state.load(SaveSystem.load());
     this.stats = computeStats(this.state);
     this.events.on('state:changed', () => {
       this.stats = computeStats(this.state);
-      for (const p of this.players ?? []) p.applyStats();
+      this.viewmodel?.setTool(this.stats.tool);
     });
 
-    // ---- Rendering ----
-    // ?quality=low turns off shadows, post-processing and most grass for weaker machines.
-    this.lowQuality = new URLSearchParams(location.search).get('quality') === 'low';
+    const params = new URLSearchParams(location.search);
+    this.lowQuality = params.get('quality') === 'low';
+    this.noRender = params.get('render') === '0'; // for automated tests: run the game without drawing
     this.graphics = new Graphics(canvas, { lowQuality: this.lowQuality });
     this.renderer = this.graphics.renderer;
     this.scene = this.graphics.scene;
     this.camera = this.graphics.camera;
+    this.graphics.scene.fog.near = 60;
+    this.graphics.scene.fog.far = 220;
 
-    // ---- World: one big map, zones unlock as you progress ----
     this.physics = new PhysicsWorld();
-    const ctx = { scene: this.scene, physics: this.physics, events: this.events, assets: this.assets, graphics: this.graphics };
-    this.layout = buildWorld(ctx);
-    this.zones = new Zones(this, this.layout.borders);
-    this.spawner = new TrashSpawner(ctx, this.layout);
-    for (const zone of ZONES) if (this.state.isUnlocked(zone.id)) this.spawner.addZone(zone, this.layout.trashRegions[zone.id]);
-    this.events.on('zone:unlocked', ({ zone }) => this.spawner.addZone(zone, this.layout.trashRegions[zone.id]));
-    this.looseBags = new LooseBags(ctx);
-    this.dropOff = new DropOff(this, this.layout);
-    this.bins = new CurbBins(this, this.layout.bins);
-    this.props = this.layout.dynamicProps.map((p) => this.spawnProp(p));
+    this.ctx = { scene: this.scene, physics: this.physics, events: this.events, assets, graphics: this.graphics, lowQuality: this.lowQuality };
+    this.layout = buildBlock(this.ctx);
+    this.factory = new EntityFactory(this.ctx);
+    this.entities = new Map();
 
-    // ---- The Rusty Pickup: parked at the motor pool, for sale until you buy it ----
-    const pool = this.layout.motorPool;
-    this.truck = new Truck(this, { position: pool.truckSpawn, yaw: pool.truckYaw, owned: this.state.ownsProperty('pickup'), sign: pool.sign });
-    this.events.on('property:bought', ({ property }) => {
-      if (property.id === 'pickup') { this.truck.setOwned(true); this.toast('The Rusty Pickup is yours! It\'s at the motor pool by Park Ave.', 'money'); }
-    });
-
-    // ---- Players ----
-    // Co-op later: more Players, each with its own intent source.
     this.input = new Input(canvas);
     this.cameraRig = new CameraRig(this.camera);
-    this.cameraRig.yaw = this.layout.spawnYaw;
     this.viewmodel = new Viewmodel(this.camera);
-    const local = new Player(this, { id: 'p1', name: 'You', model: 'worker', viewmodel: this.viewmodel });
-    local.spawn(this.layout.spawn, this.layout.spawnYaw);
-    this.players = [local];
-    this.localPlayer = local;
-    this.intentSources = new Map([[local, new LocalInputSource(this.input, this.cameraRig)]]);
-    this.events.on('player:entered', ({ player }) => {
-      if (player !== this.localPlayer) return;
-      this.cameraRig.chaseDistance = 8;
-      this.cameraRig.yaw = player.vehicle.yaw;
-      this.cameraRig.pitch = -0.22;
-    });
-    this.events.on('player:exited', ({ player, vehicle }) => {
-      if (player !== this.localPlayer) return;
-      this.cameraRig.chaseDistance = 4.5;
-      this.cameraRig.yaw = vehicle.yaw;
-      this.cameraRig.pitch = -0.1;
-    });
+    this.viewmodel.setTool(this.stats.tool);
+    this.localPlayer = new LocalPlayer(this);
+    this.intentSource = new LocalInputSource(this.input, this.cameraRig);
+    this.spawnPoint = new THREE.Vector3(B.PLAYER_SPAWNS[0].x, 0, B.PLAYER_SPAWNS[0].z);
 
-    // ---- Gary, the intern. A ragdoll NPC who exists to be thrown. ----
-    this.gary = new Ragdoll(this.physics, this.scene, {
-      name: 'Gary',
-      model: this.assets.instance('gary'),
-      position: this.layout.garySpawn,
-    });
-    this.garyTag = nameTag('Gary (intern)');
-    this.scene.add(this.garyTag);
-    this.garyRespawnTimer = -1;
+    this.sfx = new Sfx(this.camera);
+    this.fx = new Fx(this);
+    this.hud = new Hud(this);
+    this.shop = new ShopUI(this);
 
-    // ---- Highlight ring under the current pick target ----
     this.highlight = new THREE.Mesh(
       new THREE.RingGeometry(0.35, 0.48, 24),
       new THREE.MeshBasicMaterial({ color: 0xfff35c, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false }),
@@ -126,224 +94,377 @@ export class Game {
     this.highlight.visible = false;
     this.scene.add(this.highlight);
 
-    // ---- UI ----
-    this.hud = new Hud(this);
-    this.shop = new ShopUI(this);
-    this.map = new MapUI(this);
-
+    // Multiplayer bookkeeping
+    this.roster = new Map(); // id -> { id, name, model, color, host }
+    this.avatars = new Map(); // id -> Avatar (other players)
+    this.proxies = new Map(); // id -> kinematic capsule for other players (clients)
+    this.playerBufs = new Map(); // id -> SampleBuffer (clients)
+    this.playerInfo = new Map(); // id -> latest discrete fields
+    this.truckBuf = new SampleBuffer();
+    this.clock = new Clock();
+    this.poseTimer = 0;
     this.saveTimer = 0;
-    this.clock = new THREE.Clock();
+    this.connected = false;
     this.running = false;
+    this.tmp = new Array(64).fill(0);
+
+    this.cameraRig.yaw = B.PLAYER_SPAWNS[0].yaw;
     window.addEventListener('resize', () => this.resize());
     this.resize();
-    this.updateLod(0, true);
   }
 
-  // ---- Queries used by tools ----
-  pickables() {
-    const out = [];
-    for (const it of this.spawner.items) out.push({ kind: 'trash', ref: it, body: it.body });
-    for (const e of this.looseBags.bags) if (!e.decorative) out.push({ kind: 'bag', ref: e, body: e.body });
-    return out;
+  // ---------------------------------------------------------------- session
+
+  // mode: 'solo' | 'host' | 'join'
+  async begin({ mode, room, name, model }) {
+    this.mode = mode;
+    this.isHost = mode !== 'join';
+    this.room = room;
+    this.me = { name, model, color: PLAYER_COLORS[0] };
+    this.net = await createNet({ mode, room, onError: (d) => this.hud.status(`Connection trouble: ${d?.error ?? 'unknown'}. Try again or check the room code.`) });
+    this.selfId = this.net.selfId;
+    this.localPlayer.body.userData.pid = this.selfId;
+    this.truck = new Truck(this.ctx, { position: B.TRUCK_SPAWN, yaw: B.TRUCK_SPAWN.yaw, simulate: this.isHost });
+    this.sfx.attachEngine(this.truck);
+
+    if (this.isHost) {
+      this.state.load(SaveSystem.load());
+      this.sim = new HostSim(this);
+      const spawn = B.PLAYER_SPAWNS[0];
+      this.localPlayer.spawn(spawn, spawn.yaw);
+      this.sim.addPlayer(this.selfId, this.me);
+      let colorIdx = 1;
+      this.net.on('hello', (d, from) => {
+        if (this.sim.players.has(from)) return;
+        if (this.sim.players.size >= 8) return;
+        this.sim.welcome(from, { name: String(d?.name ?? 'Friend').slice(0, 16), model: d?.model ?? 'worker', color: PLAYER_COLORS[colorIdx++ % PLAYER_COLORS.length] });
+      });
+      this.net.on('pose', (d, from) => this.sim.onPose(from, d));
+      this.net.on('act', (d, from) => this.sim.onAct(from, d));
+      this.net.onPeerLeave = (id) => this.sim.removePlayer(id);
+      this.connected = true;
+    } else {
+      this.hostId = null;
+      for (const t of ['welcome', 'spawn', 'despawn', 'snap', 'state', 'inv', 'players', 'fx', 'cmd']) {
+        this.net.on(t, (d, from) => {
+          if (t === 'welcome') { if (this.hostId) return; this.hostId = from; }
+          if (from !== this.hostId) return;
+          this.receive(t, d, from);
+        });
+      }
+      const hello = () => this.net.send('hello', { name, model });
+      this.net.onPeerJoin = (id) => { if (!this.hostId) this.net.send('hello', { name, model }, id); };
+      this.net.onPeerLeave = (id) => {
+        if (id === this.hostId) this.hud.status('The host left the game. Reload to host or join another room.', true);
+        else this.removeRosterEntry(id);
+      };
+      this.helloTimer = setInterval(() => { if (this.hostId) clearInterval(this.helloTimer); else hello(); }, 1500);
+      hello();
+      this.hud.status(`Looking for room ${room}...`);
+      this.joinTimeout = setTimeout(() => {
+        if (!this.hostId) this.hud.status(`Still looking for room ${room}. Make sure the host has the game open and the code is right. It can take a few seconds to find each other.`);
+      }, 15000);
+    }
+    this.hud.setRoom(mode, room);
   }
 
-  grabbables() {
-    const out = [];
-    for (const it of this.spawner.items) out.push(it.body);
-    for (const e of this.looseBags.bags) if (!e.decorative) out.push(e.body);
-    out.push(...this.gary.bodies);
-    for (const p of this.players) if (p.ragdoll) out.push(...p.ragdoll.bodies);
-    out.push(...this.grabbablesExtra());
-    return out;
+  // Send an action to the host (or straight into the sim if we are the host).
+  act(a) {
+    if (this.isHost) this.sim.onAct(this.selfId, a);
+    else if (this.hostId) this.net.send('act', a, this.hostId);
   }
 
-  grabbablesExtra() { return this.props.map((p) => p.body); }
-
-  // Physics prop (park bins): a body plus the model offset so its base sits on the ground.
-  spawnProp({ id, x, z }) {
-    const size = this.assets.size(id);
-    const body = new CANNON.Body({
-      mass: 12,
-      shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)),
-      position: new CANNON.Vec3(x, size.y / 2 + 0.01, z),
-      collisionFilterGroup: GROUP.PROP,
-      collisionFilterMask: MASK_ALL,
-      allowSleep: true,
-    });
-    body.userData = { kind: 'prop', grabbable: true, name: 'trash can' };
-    const holder = new THREE.Group();
-    const model = this.assets.instance(id);
-    model.position.y = -size.y / 2;
-    holder.add(model);
-    this.scene.add(holder);
-    this.physics.add(body, holder);
-    body.sleep();
-    return { id, body, holder, home: new THREE.Vector3(x, size.y / 2 + 0.01, z) };
+  // Messages from the host (over the network, or directly when we are the host).
+  receive(type, d) {
+    switch (type) {
+      case 'welcome': this.onWelcome(d); break;
+      case 'spawn': if (!this.isHost) this.addEntity(d); break;
+      case 'despawn': this.onDespawn(d); break;
+      case 'snap': this.onSnapshot(d); break;
+      case 'state': if (!this.isHost) this.state.load(d); break;
+      case 'inv': this.localPlayer.inv = d; break;
+      case 'players': this.setRoster(d); break;
+      case 'fx': this.fx.onEvent(d); break;
+      case 'cmd': this.localPlayer.onCmd(d); break;
+      default: break;
+    }
   }
+
+  onWelcome(d) {
+    clearTimeout(this.joinTimeout);
+    this.connected = true;
+    for (const info of d.entities) this.addEntity(info);
+    this.state.load(d.state);
+    this.setRoster(d.players);
+    const t = d.truck;
+    if (t?.pose) this.truck.setPose(t.pose.slice(0, 3), t.pose.slice(3, 7));
+    this.truck.driver = t?.driver ?? null;
+    this.truck.bedCount = t?.bed ?? 0;
+    this.localPlayer.spawn(d.spawn, d.spawn.yaw);
+    this.spawnPoint.set(d.spawn.x, 0, d.spawn.z);
+    this.hud.status(null);
+    const host = d.players.find((p) => p.host);
+    this.toast(`Joined ${host?.name ?? 'the host'}'s block. Grab a friend with E!`, 'info');
+  }
+
+  addEntity(info) {
+    if (this.entities.has(info.id)) return;
+    const e = this.factory.create(info, false);
+    e.buf = new SampleBuffer(8);
+    const t = this.clock.offset === null ? performance.now() : this.clock.renderTime();
+    if (e.ragdoll) {
+      const row = [];
+      for (const k of PART_ORDER) { const b = e.ragdoll.parts[k]; row.push(b.position.x, b.position.y, b.position.z, b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); }
+      e.buf.push(t, row);
+    } else e.buf.push(t, [...info.p, ...(info.q ?? [0, 0, 0, 1])]);
+    this.entities.set(info.id, e);
+  }
+
+  onDespawn({ id, fx }) {
+    const e = this.entities.get(id);
+    if (!e) return;
+    this.fx.onDespawn(e, fx);
+    if (!this.isHost) { this.factory.destroy(e); this.entities.delete(id); }
+  }
+
+  onSnapshot(s) {
+    this.clock.sample(s.t);
+    const t = s.t;
+    for (const row of s.e) {
+      const e = this.entities.get(row[0]);
+      if (e) e.buf.push(t, row.slice(1));
+    }
+    for (const row of s.r) {
+      const e = this.entities.get(row[0]);
+      if (e) e.buf.push(t, row.slice(1));
+    }
+    for (const row of s.p) {
+      const [id, x, y, z, yaw, pitch, speed, state, drunk, fill, holding, tied, punch] = row;
+      if (id === this.selfId) {
+        if (performance.now() > (this.localPlayer.holdLock ?? 0)) this.localPlayer.holding = holding;
+        continue;
+      }
+      let buf = this.playerBufs.get(id);
+      if (!buf) this.playerBufs.set(id, (buf = new SampleBuffer(10)));
+      buf.push(t, [x, y, z, yaw, pitch, speed]);
+      this.playerInfo.set(id, { state, drunk, fill, holding, tied, punch });
+    }
+    if (s.tr) {
+      this.truckBuf.push(t, s.tr.slice(0, 7).concat(s.tr[10]));
+      this.truck.bedCount = s.tr[11];
+      this.truck.driver = s.tr[12] || null;
+    }
+  }
+
+  setRoster(list) {
+    const seen = new Set();
+    for (const p of list) {
+      seen.add(p.id);
+      this.roster.set(p.id, p);
+      if (p.id === this.selfId) { this.me.color = p.color; continue; }
+      if (!this.avatars.has(p.id)) {
+        this.avatars.set(p.id, new Avatar(this, p));
+        if (!this.isHost) {
+          const body = new CANNON.Body({ mass: 0, type: CANNON.Body.KINEMATIC, collisionFilterGroup: GROUP.REMOTE, collisionFilterMask: GROUP.PLAYER });
+          body.addShape(new CANNON.Sphere(0.35), new CANNON.Vec3(0, -0.45, 0));
+          body.addShape(new CANNON.Sphere(0.35), new CANNON.Vec3(0, 0.45, 0));
+          body.position.set(0, -50, 0);
+          body.userData = { kind: 'player', pid: p.id };
+          this.physics.add(body);
+          this.proxies.set(p.id, body);
+        }
+      }
+    }
+    for (const id of [...this.roster.keys()]) if (!seen.has(id)) this.removeRosterEntry(id);
+    this.hud.setPlayers([...this.roster.values()]);
+  }
+
+  removeRosterEntry(id) {
+    this.roster.delete(id);
+    this.avatars.get(id)?.dispose();
+    this.avatars.delete(id);
+    const b = this.proxies.get(id);
+    if (b) this.physics.remove(b);
+    this.proxies.delete(id);
+    this.playerBufs.delete(id);
+    this.hud.setPlayers([...this.roster.values()]);
+  }
+
+  // Bodies standing in for other players (what you grab them by).
+  remoteBodies() {
+    if (this.isHost) return [...this.sim.players.values()].filter((r) => !r.isLocal && r.state === 'foot').map((r) => r.body);
+    return [...this.proxies.entries()].filter(([id]) => this.playerInfo.get(id)?.state === 0).map(([, b]) => b);
+  }
+
+  // ---------------------------------------------------------------- loop
 
   toast(text, kind, key) { this.hud.toast(text, kind, key); }
-
-  save() { SaveSystem.save(this.state.toJSON()); }
+  save() { if (this.isHost) SaveSystem.save(this.state.toJSON()); }
 
   resetSave() {
+    if (!this.isHost) { this.toast('Only the host can wipe the save', 'warn'); return; }
     SaveSystem.clear();
     this.state.reset();
-    for (const p of this.players) { if (p.vehicle) p.exitVehicle(); p.inventory.takeAll(); p.spawn(this.layout.spawn, this.layout.spawnYaw); }
-    this.truck.unloadAll();
-    this.truck.setOwned(false);
-    this.truck.reset();
     this.toast('Save wiped. Back to the stick.', 'warn');
   }
 
-  respawnGaryLater(seconds) { this.garyRespawnTimer = seconds; }
-
-  resize() {
-    this.graphics.resize(window.innerWidth, window.innerHeight);
-  }
+  resize() { this.graphics.resize(window.innerWidth, window.innerHeight); }
 
   start() {
     if (this.running) return;
     this.running = true;
-    this.clock.start();
-    const loop = () => {
-      const dt = Math.min(this.clock.getDelta(), 1 / 20);
-      if (!this.paused) this.frame(dt);
+    this.lastT = performance.now();
+    const loop = (now) => {
+      const dt = Math.min((now - this.lastT) / 1000, 1 / 20);
+      this.lastT = now;
+      this.frame(dt);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
   }
 
   frame(dt) {
-    const menu = this.shop.isOpen || this.map.isOpen;
+    const lp = this.localPlayer;
+    const menu = this.shop.isOpen;
     this.input.enabled = !menu;
-    for (const player of this.players) {
-      const src = this.intentSources.get(player);
-      const intent = src ? { ...IDLE_INTENT, ...src.read(dt) } : IDLE_INTENT;
-      if (menu) Object.assign(intent, IDLE_INTENT);
-      this.lastIntent = intent;
-      const wasDriving = !!player.vehicle;
-      player.update(dt, intent);
-      // F while driving means "get out", handled by the player.
-      if (intent.interact && !wasDriving) this.interact(player);
-    }
-    if (!this.truck.driver) this.truck.idle(dt);
+    const intent = { ...IDLE_INTENT, ...this.intentSource.read(dt) };
+    if (menu || !this.connected) Object.assign(intent, IDLE_INTENT, { aimDir: intent.aimDir, aimOrigin: intent.aimOrigin, aimRight: intent.aimRight, yaw: intent.yaw, pitch: intent.pitch });
+    this.lastIntent = intent;
+
+    lp.update(dt, intent);
+    if (this.isHost) this.sim.update(dt);
+    else this.applyInterpolation(dt);
 
     this.physics.step(dt);
 
-    for (const player of this.players) {
-      player.lateUpdate(dt);
-      if (!player.isFlopped && !player.vehicle && player.body.position.y < -10) player.spawn(this.layout.spawn, this.layout.spawnYaw);
-    }
-    this.truck.lateUpdate(dt);
-    this.zones.update(dt);
-    this.spawner.update(dt);
-    this.looseBags.update(dt);
-    this.dropOff.update(dt);
-    this.bins.update(dt);
-    this.gary.sync();
-    this.updateGary(dt);
-    this.updateHighlight();
+    const impact = this.truck.lateUpdate(dt);
+    if (this.truck.driver === this.selfId) lp.afterDrive(impact);
+    for (const e of this.entities.values()) if (e.ragdoll && e.simulate) e.ragdoll.sync();
+    if (this.isHost) this.sim.lateUpdate(dt);
+    lp.lateUpdate(dt);
 
-    const me = this.localPlayer;
-    this.cameraRig.setMode(me.isFlopped || me.vehicle ? 'chase' : 'first');
-    if (me.vehicle) this.cameraRig.follow(dt, me.vehicle.yaw);
-    this.cameraRig.update(dt, me.cameraTarget(), me.grounded && !me.isFlopped && !me.vehicle ? me.horizontalSpeed() : 0);
-    this.graphics.follow(me.cameraTarget());
+    // Unhide anything we tried to pick that the host didn't hand over.
+    const now = performance.now();
+    for (const e of this.entities.values()) if (e.pending && now - e.pending > 1500) { e.pending = 0; e.mesh.visible = true; }
+
+    if (!this.isHost && this.hostId) {
+      this.poseTimer += dt;
+      if (this.poseTimer >= POSE_INTERVAL) { this.poseTimer = 0; this.net.send('pose', lp.pose(), this.hostId); }
+    }
+    this.updateAvatars(dt);
+
+    const chase = lp.state !== 'foot';
+    this.cameraRig.setMode(chase ? 'chase' : 'first');
+    this.cameraRig.roll = lp.drunk > 0.5 ? Math.sin(now / 900) * 0.025 * lp.drunk : 0;
+    this.cameraRig.update(dt, lp.cameraTarget(), lp.grounded && lp.state === 'foot' ? lp.horizontalSpeed() : 0);
+    if (this.debugCam) { this.camera.position.fromArray(this.debugCam.pos); this.camera.lookAt(...this.debugCam.look); }
+    this.graphics.follow(this.debugCam ? new THREE.Vector3(...this.debugCam.look) : lp.cameraTarget());
+    this.updateHighlight();
+    this.fx.update(dt);
+    this.sfx.update(dt, this);
     this.hud.update(dt);
-    this.map.update(dt);
 
     this.saveTimer += dt;
     if (this.saveTimer > 10) { this.saveTimer = 0; this.save(); }
-
-    this.updateLod(dt);
-    this.graphics.render(dt);
+    if (!this.noRender || this.forceRender) { this.graphics.render(dt); this.forceRender = false; }
     this.input.endFrame();
   }
 
-  // Hide far-away chunks of instanced scenery (houses, trees, bins). The fog
-  // covers the pop-in, and it keeps the big map cheap to draw.
-  updateLod(dt, force = false) {
-    this.lodTimer = (this.lodTimer ?? 0) - dt;
-    if (this.lodTimer > 0 && !force) return;
-    this.lodTimer = 0.25;
-    const cam = this.camera.position;
-    for (const l of this.layout.lod) {
-      const d = Math.hypot(l.center.x - cam.x, l.center.z - cam.z);
-      l.object.visible = d < l.far;
+  // Clients: move every stand-in to where the host says it was ~110 ms ago.
+  applyInterpolation(dt) {
+    const rt = this.clock.renderTime();
+    const tmp = this.tmp;
+    for (const e of this.entities.values()) {
+      if (e.ragdoll) {
+        if (!e.buf.at(rt, tmp, { quats: QUATS_R })) continue;
+        PART_ORDER.forEach((k, i) => {
+          const b = e.ragdoll.parts[k], o = i * 7;
+          b.position.set(tmp[o], tmp[o + 1], tmp[o + 2]);
+          b.quaternion.set(tmp[o + 3], tmp[o + 4], tmp[o + 5], tmp[o + 6]);
+        });
+        e.ragdoll.sync();
+        continue;
+      }
+      if (!e.buf.at(rt, tmp, { quats: QUATS_E })) continue;
+      e.body.position.set(tmp[0], tmp[1], tmp[2]);
+      e.body.quaternion.set(tmp[3], tmp[4], tmp[5], tmp[6]);
+    }
+    // The truck, unless we're the one driving it.
+    if (!this.truck.simulated && this.truckBuf.at(rt, tmp, { quats: QUATS_E })) {
+      const b = this.truck.body;
+      const k = 1 / Math.max(dt, 1 / 120);
+      b.velocity.set((tmp[0] - b.position.x) * k, (tmp[1] - b.position.y) * k, (tmp[2] - b.position.z) * k);
+      b.position.set(tmp[0], tmp[1], tmp[2]);
+      b.quaternion.set(tmp[3], tmp[4], tmp[5], tmp[6]);
+      this.truck.steer = tmp[7];
+      const f = this.truck.forward();
+      this.truck.speed = (b.velocity.x * f.x + b.velocity.z * f.z) * 0.5 + this.truck.speed * 0.5;
+      b.velocity.set(0, 0, 0);
     }
   }
 
-  // What F does on foot, in priority order. Hud.promptText mirrors this.
-  interactTarget(player) {
-    if (player.isFlopped || player.vehicle) return null;
-    const feet = player.feet();
-    if (this.dropOff.isNear(player)) return { kind: 'sell' };
-    const shop = this.layout.shops.find((s) => feet.distanceTo(s.position) < s.interactRadius);
-    if (shop) return { kind: 'shop', shop };
-    const bin = this.bins.near(player);
-    if (bin) return { kind: 'bin', bin };
+  updateAvatars(dt) {
+    const rt = this.clock.renderTime();
+    const tmp = this.tmp;
+    for (const [id, avatar] of this.avatars) {
+      let s;
+      if (this.isHost) {
+        const rec = this.sim.players.get(id);
+        if (!rec?.view) continue;
+        const inv = rec.inventory;
+        s = { p: rec.view, yaw: rec.view[3], speed: rec.view[5], state: { foot: 0, ragdoll: 1, drive: 2 }[rec.state], drunk: rec.pose.drunk ?? 0,
+          fill: Math.round(Math.min(1, inv.current.used / inv.capacity) * 100), holding: rec.holding, tied: inv.tied.length, punch: rec.pose.punch ?? 0 };
+      } else {
+        const buf = this.playerBufs.get(id);
+        if (!buf?.at(rt, tmp, { angles: [3] })) continue;
+        const info = this.playerInfo.get(id) ?? {};
+        s = { p: [tmp[0], tmp[1], tmp[2]], yaw: tmp[3], speed: tmp[5], ...info };
+        const proxy = this.proxies.get(id);
+        if (proxy) {
+          if (info.state === 0) proxy.position.set(tmp[0], tmp[1], tmp[2]);
+          else proxy.position.set(0, -50, 0);
+        }
+      }
+      avatar.update(dt, s);
+    }
+  }
+
+  // What F does right now, in priority order. Hud.promptText mirrors this.
+  interactTarget() {
+    const lp = this.localPlayer;
+    if (lp.state !== 'foot') return null;
+    const f = lp.feet();
+    const flat = (p) => Math.hypot(p.x - f.x, p.z - f.z);
+    const L = this.layout;
+    const dump = L.dumpsters.find((d) => flat(d.position) < d.interactRadius);
+    if (dump) return { kind: 'sell', dumpster: dump };
+    if (flat(L.shop.position) < L.shop.interactRadius) return { kind: 'shop' };
+    if (flat(L.scratch.position) < L.scratch.interactRadius) return { kind: 'scratch' };
+    if (flat(L.cooler.position) < L.cooler.interactRadius) return { kind: 'drink' };
+    let bin = null, bestD = 2.4;
+    for (const e of this.entities.values()) {
+      if (e.kind !== 'prop' || e.info.type !== 'bin') continue;
+      const d = flat(e.body.position);
+      const q = e.body.quaternion;
+      if (d < bestD && 1 - 2 * (q.x * q.x + q.z * q.z) > 0.7) { bestD = d; bin = e; }
+    }
+    if (bin) return { kind: 'bin', entity: bin };
     const t = this.truck;
-    const tail = feet.distanceTo(t.tailgatePoint()) < 2.4, close = feet.distanceTo(t.position.clone().setY(0)) < 4;
-    if (t.owned && tail && !player.inventory.isEmpty) return { kind: 'load' };
-    if (close || tail) return { kind: t.owned ? 'drive' : 'buyTruck' };
-    const gate = this.zones.nearGate(feet);
-    if (gate) return { kind: 'gate', gate };
+    if (t && !t.driver) {
+      if (flat(t.tailgatePoint()) < 2.6 && lp.hasBags) return { kind: 'load' };
+      if (flat(t.position) < 4.2 || flat(t.doorPoint()) < 2) return { kind: 'drive' };
+    }
     return null;
   }
 
-  interact(player) {
-    const t = this.interactTarget(player);
-    if (!t) return;
-    if (t.kind === 'sell') this.dropOff.sellCarried(player);
-    else if (t.kind === 'shop') this.shop.open();
-    else if (t.kind === 'bin') this.bins.empty(player, t.bin);
-    else if (t.kind === 'load') {
-      const n = this.truck.loadFrom(player);
-      this.toast(n ? `Loaded ${n} bag${n > 1 ? 's' : ''} into the truck (${this.truck.bed.length}/12)` : 'The truck bed is full', n ? 'info' : 'warn', 'bed');
-    } else if (t.kind === 'drive') player.enterVehicle(this.truck);
-    else if (t.kind === 'buyTruck') {
-      const res = this.state.buyProperty('pickup');
-      if (!res.ok) this.toast(`The Rusty Pickup costs $${getProperty('pickup').cost.toLocaleString()}. Keep picking!`, 'warn', 'truck');
-      else this.save();
-    } else if (t.kind === 'gate') this.zones.tryUnlockAt(t.gate);
-  }
-
-  // E while driving: sell the bed (and your belt) at a dumpster you've pulled up to.
-  sellFromTruck(player) {
-    const d = this.dropOff.at(this.truck.position, 8);
-    if (!d) { this.toast('Pull up next to a dumpster to sell the load', 'warn', 'truck-sell'); return; }
-    this.dropOff.sellCarried(player);
-  }
-
-  updateGary(dt) {
-    if (this.garyRespawnTimer > 0) {
-      this.garyRespawnTimer -= dt;
-      if (this.garyRespawnTimer <= 0) {
-        this.dropOff.releaseIfHeld(this.gary.torso);
-        for (const p of this.players) if (p.grabber.held?.ud.ragdoll === this.gary) p.grabber.release();
-        this.gary.teleport(this.layout.garySpawn, Math.random() * Math.PI * 2);
-        this.toast('Gary is back. Gary is always back.', 'info');
-      }
-    }
-    // Fell out of the world, or got thrown over a fence into a locked zone? Bring him home.
-    const gp = this.gary.position;
-    if (gp.y < -10) this.gary.teleport(this.layout.garySpawn);
-    else if (this.gary.held === 0 && this.garyRespawnTimer <= 0 && this.zones.constrain(gp.x, gp.z, 0)) {
-      this.toast('Gary wandered somewhere he shouldn\'t. Gary is back.', 'info', 'gary-lost');
-      this.respawnGaryLater(2);
-    }
-    this.garyTag.position.set(this.gary.position.x, this.gary.position.y + 1.0, this.gary.position.z);
-    this.garyTag.visible = this.gary.held === 0 && this.camera.position.distanceTo(this.garyTag.position) > 3;
-  }
-
   updateHighlight() {
-    const t = this.localPlayer.picker.target;
-    this.highlight.visible = !!t;
-    if (t) {
+    const t = this.localPlayer.target;
+    this.highlight.visible = !!t && this.localPlayer.state === 'foot';
+    if (this.highlight.visible) {
       const p = t.body.position;
-      this.highlight.position.set(p.x, 0.03, p.z);
+      this.highlight.position.set(p.x, 0.04, p.z);
       const s = 1 + Math.sin(performance.now() / 120) * 0.08;
-      this.highlight.scale.setScalar(t.kind === 'bag' || t.ref?.type === 'tire' || t.ref?.type === 'pizzaBox' ? s * 1.5 : s);
+      this.highlight.scale.setScalar(t.kind === 'bag' || t.info.type === 'tire' || t.info.type === 'pizzaBox' ? s * 1.5 : s);
     }
   }
 }

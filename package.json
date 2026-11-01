@@ -1,7 +1,7 @@
 {
   "name": "this-game-is-trash",
   "version": "0.1.0",
-  "description": "A co-op trash-collecting progression sim. Three.js + cannon-es prototype.",
+  "description": "Online co-op trash-collecting chaos on one small block. Three.js + cannon-es + Trystero.",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,11 @@
   },
   "dependencies": {
     "cannon-es": "0.20.0",
-    "three": "0.170.0"
+    "three": "0.170.0",
+    "trystero": "0.26.0"
   },
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "esbuild": "0.24.0"
+  }
 }

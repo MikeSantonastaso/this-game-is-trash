@@ -143,6 +143,31 @@ export class Viewmodel {
     this.left.visible = false;
     this.root.add(this.left);
 
+    // ---- Left hand holding your trash bag (fills up as you pick) ----
+    this.bagHand = new THREE.Group();
+    const bagHandMesh = buildHand({ closed: true, mirror: -1 });
+    bagHandMesh.rotation.set(0.2, 0, 0.1);
+    const bagMat = new THREE.MeshStandardMaterial({ color: 0x1d1e22, roughness: 0.3, metalness: 0.15 });
+    const bagGeo = new THREE.SphereGeometry(0.14, 16, 12);
+    bagGeo.scale(1, 1.25, 1);
+    // Squash the top into a gathered neck.
+    const pos = bagGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const y = pos.getY(i);
+      if (y > 0.05) { const k = 1 - (y - 0.05) * 3.2; pos.setX(i, pos.getX(i) * k); pos.setZ(i, pos.getZ(i) * k); }
+    }
+    bagGeo.computeVertexNormals();
+    this.bag = new THREE.Mesh(bagGeo, bagMat);
+    this.bag.position.set(0, -0.2, 0);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.035, 0.08, 8), bagMat);
+    neck.position.set(0, -0.06, 0);
+    this.bagHand.add(bagHandMesh, this.bag, neck);
+    this.bagHand.traverse((o) => { o.castShadow = false; });
+    this.root.add(this.bagHand);
+    this.bagFill = 0;
+    this.bagPulse = 0;
+    this.punchT = 0;
+
     this.clackT = 0;
     this.swayT = 0;
     this.holdT = 0;
@@ -162,12 +187,24 @@ export class Viewmodel {
   }
 
   clack() { this.clackT = 1; }
+  punch() { this.punchT = 1; }
+  pulseBag() { this.bagPulse = 1; }
+  bagWorldPosition(out = new THREE.Vector3()) { return this.bag.getWorldPosition(out); }
 
   tipWorldPosition(out = new THREE.Vector3()) { return this.picker.tip.getWorldPosition(out); }
 
-  update(dt, { speed = 0, grounded = true, holding = false, visible = true }) {
+  update(dt, { speed = 0, grounded = true, holding = false, visible = true, fill = 0, drunk = 0 }) {
     this.root.visible = visible;
     if (!visible) return;
+    // Bag: grows with fill, wobbles when something goes in.
+    this.bagFill += (Math.min(1, fill) - this.bagFill) * Math.min(1, dt * 10);
+    this.bagPulse = Math.max(0, this.bagPulse - dt * 4);
+    const wob = Math.sin(this.bagPulse * Math.PI * 3) * this.bagPulse * 0.15;
+    const bs = 0.55 + this.bagFill * 0.75;
+    this.bag.scale.set(bs * (1 + wob), bs * (1 - wob), bs * (1 + wob));
+    this.bag.position.y = -0.12 - bs * 0.16;
+    this.punchT = Math.max(0, this.punchT - dt * 5);
+    const punch = Math.sin(this.punchT * Math.PI);
     this.swayT += dt * (grounded ? speed : 0) * 1.8;
     const amp = Math.min(speed / 5, 1);
     this.root.position.set(Math.cos(this.swayT) * 0.01 * amp, -Math.abs(Math.sin(this.swayT)) * 0.014 * amp, 0);
@@ -176,12 +213,16 @@ export class Viewmodel {
     const jab = Math.sin(this.clackT * Math.PI);
     this.holdT += ((holding ? 1 : 0) - this.holdT) * Math.min(1, dt * 12);
 
-    this.right.position.set(0.17, -0.15 - this.holdT * 0.12, -0.34 - jab * 0.1);
+    this.right.position.set(0.17 - punch * 0.12, -0.15 - this.holdT * 0.12 + punch * 0.08, -0.34 - jab * 0.1 - punch * 0.28);
     this.aim.rotation.x = -0.5 - jab * 0.12 - this.holdT * 0.3;
     const open = 0.32 * (1 - jab);
     for (const { pivot, side } of this.picker.jaws) pivot.rotation.y = -side * open;
 
     this.left.visible = this.holdT > 0.02;
+    this.bagHand.visible = this.holdT < 0.9;
+    const bob = Math.sin(this.swayT * 0.5) * 0.01 * amp + Math.sin(performance.now() / 600) * 0.01 * drunk;
+    this.bagHand.position.set(-0.26, -0.3 - this.holdT * 0.3 + bob, -0.44);
+    this.bagHand.rotation.set(0.1, 0.25, 0.15 + wob * 0.5);
     this.left.position.set(-0.24, -0.42 + this.holdT * 0.22, -0.42);
     this.left.rotation.set(0.25, 0, 0.2);
   }

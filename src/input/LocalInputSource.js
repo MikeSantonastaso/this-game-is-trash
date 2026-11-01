@@ -2,7 +2,7 @@
 // reads each frame, which keeps Players engine- and network-agnostic:
 //
 // { move: {x, z} (world space, length <= 1), jump, sprint, pick, pickHeld,
-//   grab, flop, interact, tie, throwBag, aimOrigin: Vector3, aimDir: Vector3 }
+//   grab, flop, interact, tie, throwBag, punch, aimOrigin: Vector3, aimDir: Vector3, yaw, pitch }
 import * as THREE from 'three';
 
 export class LocalInputSource {
@@ -47,10 +47,12 @@ export class LocalInputSource {
       interact: i.pressed('KeyF'),
       tie: i.pressed('KeyB'),
       throwBag: i.pressed('KeyG'),
+      punch: i.pressed('KeyQ') || i.clicked(1),
       aimOrigin: this.cameraRig.camera.position.clone(),
       aimDir: this.cameraRig.forward(),
       aimRight: this.cameraRig.right(),
       yaw: this.cameraRig.yaw,
+      pitch: this.cameraRig.pitch,
     };
   }
 }

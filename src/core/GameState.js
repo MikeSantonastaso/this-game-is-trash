@@ -1,11 +1,8 @@
-// The single source of truth for progression: money, owned tools, upgrade
-// levels, unlocked areas. No rendering or physics here, so it is easy to unit
+// The single source of truth for progression: money, owned tools and upgrade
+// levels. In co-op the host owns it (shared wallet) and broadcasts it. No rendering or physics here, so it is easy to unit
 // test, sync over the network for co-op, and port to another engine.
 import { TOOLS } from '../data/tools.js';
 import { UPGRADES } from '../data/upgrades.js';
-import { getZone } from '../data/zones.js';
-import { getProperty } from '../data/properties.js';
-import { canUnlock, unlockFee } from './requirements.js';
 
 const fresh = () => ({
   money: 0,
@@ -13,9 +10,7 @@ const fresh = () => ({
   ownedTools: ['picker_basic'],
   equippedTool: 'picker_basic',
   upgrades: { bagSize: 0, bagSlots: 0, moveSpeed: 0, haggle: 0 },
-  unlockedAreas: ['park'], // zone ids (key kept from the first prototype's saves)
-  ownedProperties: [],
-  stats: { itemsPicked: 0, bagsSold: 0, garyDunks: 0, binsEmptied: 0, garyBonks: 0 },
+  stats: { itemsPicked: 0, bagsSold: 0, garyDunks: 0, binsEmptied: 0, garyBonks: 0, friendsDunked: 0, beers: 0, scratchers: 0, scratchWon: 0, punches: 0 },
 });
 
 export class GameState {
@@ -97,36 +92,6 @@ export class GameState {
     if (cost === null) return { ok: false, reason: 'max' };
     if (!this.spend(cost)) return { ok: false, reason: 'money' };
     this.upgrades[id] = this.upgradeLevel(id) + 1;
-    this.changed();
-    return { ok: true };
-  }
-
-  // ---- Zones ----
-  isUnlocked(id) { return this.unlockedAreas.includes(id); }
-
-  // Checks every requirement, pays the fee, opens the zone.
-  unlockZone(id) {
-    const zone = getZone(id);
-    if (!zone) return { ok: false, reason: 'unknown' };
-    const check = canUnlock(this, zone);
-    if (!check.ok) return check;
-    if (!this.spend(unlockFee(zone))) return { ok: false, reason: 'money', missing: [] };
-    this.unlockedAreas.push(id);
-    this.events?.emit('zone:unlocked', { zone });
-    this.changed();
-    return { ok: true };
-  }
-
-  // ---- Property & vehicles ----
-  ownsProperty(id) { return this.ownedProperties.includes(id); }
-
-  buyProperty(id) {
-    const prop = getProperty(id);
-    if (!prop || this.ownsProperty(id)) return { ok: false, reason: 'owned' };
-    if (!prop.available) return { ok: false, reason: 'soon' };
-    if (!this.spend(prop.cost)) return { ok: false, reason: 'money' };
-    this.ownedProperties.push(id);
-    this.events?.emit('property:bought', { property: prop });
     this.changed();
     return { ok: true };
   }
