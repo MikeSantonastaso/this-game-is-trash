@@ -1,13 +1,21 @@
 import { Game } from './core/Game.js';
 
 const startEl = document.getElementById('start');
+const startBtn = document.getElementById('start-btn');
 const errorEl = document.getElementById('start-error');
 
+startBtn.disabled = true;
+startBtn.textContent = 'Loading 0%';
+
 try {
-  const game = new Game(document.getElementById('game'));
+  const game = await Game.create(document.getElementById('game'), (p) => {
+    startBtn.textContent = `Loading ${Math.round(p * 100)}%`;
+  });
   window.TGIT = game; // handy for poking at things from the console
   game.renderer.render(game.scene, game.camera);
-  document.getElementById('start-btn').addEventListener('click', () => {
+  startBtn.disabled = false;
+  startBtn.textContent = 'Clock in';
+  startBtn.addEventListener('click', () => {
     startEl.classList.add('hidden');
     game.input.requestLock();
     game.start();
@@ -15,5 +23,6 @@ try {
   });
 } catch (err) {
   console.error(err);
+  startBtn.textContent = 'Error';
   errorEl.textContent = `Couldn't start the game: ${err.message}. WebGL may be disabled in this browser.`;
 }

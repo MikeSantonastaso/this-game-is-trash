@@ -6,7 +6,10 @@ import { GameState } from './GameState.js';
 import { SaveSystem } from './SaveSystem.js';
 import { PhysicsWorld } from '../systems/PhysicsWorld.js';
 import { computeStats } from '../systems/Stats.js';
-import { ThirdPersonCamera } from '../systems/ThirdPersonCamera.js';
+import { CameraRig } from '../systems/CameraRig.js';
+import { Assets } from './Assets.js';
+import { Viewmodel } from '../entities/Viewmodel.js';
+import { CANNON, GROUP, MASK_ALL } from '../systems/PhysicsWorld.js';
 import { TrashSpawner } from '../systems/TrashSpawner.js';
 import { LooseBags } from '../systems/LooseBags.js';
 import { DropOff } from '../systems/DropOff.js';
@@ -26,8 +29,16 @@ const IDLE_INTENT = {
 };
 
 export class Game {
-  constructor(canvas) {
+  // Async because models load first: `const game = await Game.create(canvas, onProgress)`
+  static async create(canvas, onProgress) {
+    const assets = new Assets();
+    await assets.loadAll(onProgress);
+    return new Game(canvas, assets);
+  }
+
+  constructor(canvas, assets) {
     this.canvas = canvas;
+    this.assets = assets;
     this.events = new EventBus();
     this.state = new GameState(this.events);
     this.state.load(SaveSystem.load());
@@ -39,37 +50,44 @@ export class Game {
 
     // ---- Rendering ----
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    // ?quality=low turns off shadows and high-DPI rendering for weaker machines.
+    this.lowQuality = new URLSearchParams(location.search).get('quality') === 'low';
+    this.renderer.setPixelRatio(this.lowQuality ? 1 : Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = !this.lowQuality;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x9fd3ff);
-    this.scene.fog = new THREE.Fog(0x9fd3ff, 45, 110);
-    this.camera = new THREE.PerspectiveCamera(65, 1, 0.1, 300);
+    this.scene.background = new THREE.Color(0xa8d4f5);
+    this.scene.fog = new THREE.Fog(0xc4e2f7, 70, 320);
+    this.camera = new THREE.PerspectiveCamera(72, 1, 0.05, 1200);
+    this.scene.add(this.camera); // the first-person hands are parented to it
     this.scene.add(new THREE.HemisphereLight(0xdff1ff, 0x4a6b2a, 1.4));
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
-    sun.position.set(20, 35, 15);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 100 });
-    this.scene.add(sun);
+    sun.shadow.bias = -0.0005;
+    Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 140 });
+    this.scene.add(sun, sun.target);
+    this.sun = sun;
+    this.sunOffset = new THREE.Vector3(30, 50, 20);
 
     // ---- World ----
     this.physics = new PhysicsWorld();
     this.area = getArea(this.state.currentArea);
-    const ctx = { scene: this.scene, physics: this.physics, events: this.events };
+    const ctx = { scene: this.scene, physics: this.physics, events: this.events, assets: this.assets };
     this.layout = buildArea(ctx, this.area);
     this.spawner = new TrashSpawner(ctx, this.area, this.layout);
     this.looseBags = new LooseBags(ctx);
     this.dropOff = new DropOff(this, this.layout);
+    this.props = this.layout.dynamicProps.map((p) => this.spawnProp(p));
 
     // ---- Players ----
     // Co-op later: more Players, each with its own intent source.
     this.input = new Input(canvas);
-    this.cameraRig = new ThirdPersonCamera(this.camera);
+    this.cameraRig = new CameraRig(this.camera);
     this.cameraRig.yaw = this.layout.spawnYaw;
-    const local = new Player(this, { id: 'p1', name: 'You' });
+    this.viewmodel = new Viewmodel(this.camera);
+    const local = new Player(this, { id: 'p1', name: 'You', model: 'worker', viewmodel: this.viewmodel });
     local.spawn(this.layout.spawn, this.layout.spawnYaw);
     this.players = [local];
     this.localPlayer = local;
@@ -78,8 +96,8 @@ export class Game {
     // ---- Gary, the intern. A ragdoll NPC who exists to be thrown. ----
     this.gary = new Ragdoll(this.physics, this.scene, {
       name: 'Gary',
+      model: this.assets.instance('gary'),
       position: this.layout.garySpawn,
-      colors: { shirt: 0x2d6cdf, pants: 0x6b4f2a, skin: 0xe0ac69, hat: 0x2fbf71 },
     });
     this.garyTag = nameTag('Gary (intern)');
     this.scene.add(this.garyTag);
@@ -119,7 +137,32 @@ export class Game {
     for (const e of this.looseBags.bags) if (!e.decorative) out.push(e.body);
     out.push(...this.gary.bodies);
     for (const p of this.players) if (p.ragdoll) out.push(...p.ragdoll.bodies);
+    out.push(...this.grabbablesExtra());
     return out;
+  }
+
+  grabbablesExtra() { return this.props.map((p) => p.body); }
+
+  // Physics prop (park bins): a body plus the model offset so its base sits on the ground.
+  spawnProp({ id, x, z }) {
+    const size = this.assets.size(id);
+    const body = new CANNON.Body({
+      mass: 12,
+      shape: new CANNON.Box(new CANNON.Vec3(size.x / 2, size.y / 2, size.z / 2)),
+      position: new CANNON.Vec3(x, size.y / 2 + 0.01, z),
+      collisionFilterGroup: GROUP.PROP,
+      collisionFilterMask: MASK_ALL,
+      allowSleep: true,
+    });
+    body.userData = { kind: 'prop', grabbable: true, name: 'trash can' };
+    const holder = new THREE.Group();
+    const model = this.assets.instance(id);
+    model.position.y = -size.y / 2;
+    holder.add(model);
+    this.scene.add(holder);
+    this.physics.add(body, holder);
+    body.sleep();
+    return { id, body, holder, home: new THREE.Vector3(x, size.y / 2 + 0.01, z) };
   }
 
   toast(text, kind, key) { this.hud.toast(text, kind, key); }
@@ -147,7 +190,8 @@ export class Game {
     this.running = true;
     this.clock.start();
     const loop = () => {
-      this.frame(Math.min(this.clock.getDelta(), 1 / 20));
+      const dt = Math.min(this.clock.getDelta(), 1 / 20);
+      if (!this.paused) this.frame(dt);
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -173,10 +217,16 @@ export class Game {
     this.spawner.update(dt);
     this.looseBags.update(dt);
     this.dropOff.update(dt);
+    this.gary.sync();
     this.updateGary(dt);
     this.updateHighlight();
 
-    this.cameraRig.update(dt, this.localPlayer.cameraTarget());
+    const me = this.localPlayer;
+    this.cameraRig.setMode(me.isFlopped ? 'chase' : 'first');
+    this.cameraRig.update(dt, me.cameraTarget(), me.grounded && !me.isFlopped ? me.horizontalSpeed() : 0);
+    const focus = me.cameraTarget();
+    this.sun.target.position.set(Math.round(focus.x), 0, Math.round(focus.z));
+    this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
     this.hud.update(dt);
 
     this.saveTimer += dt;
@@ -205,6 +255,7 @@ export class Game {
     // Fell out of the world somehow? Bring him home.
     if (this.gary.position.y < -10) this.gary.teleport(this.layout.garySpawn);
     this.garyTag.position.set(this.gary.position.x, this.gary.position.y + 1.0, this.gary.position.z);
+    this.garyTag.visible = this.gary.held === 0 && this.camera.position.distanceTo(this.garyTag.position) > 3;
   }
 
   updateHighlight() {

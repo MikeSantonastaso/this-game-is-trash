@@ -19,8 +19,8 @@ export class LocalInputSource {
       const keyLook = 2.2 * dt;
       if (i.down('ArrowLeft')) this.cameraRig.yaw += keyLook;
       if (i.down('ArrowRight')) this.cameraRig.yaw -= keyLook;
-      if (i.down('ArrowUp')) this.cameraRig.pitch = Math.min(this.cameraRig.pitch + keyLook, 0.7);
-      if (i.down('ArrowDown')) this.cameraRig.pitch = Math.max(this.cameraRig.pitch - keyLook, -1.2);
+      if (i.down('ArrowUp')) this.cameraRig.pitch = Math.min(this.cameraRig.pitch + keyLook, 1.35);
+      if (i.down('ArrowDown')) this.cameraRig.pitch = Math.max(this.cameraRig.pitch - keyLook, -1.45);
       if (mouse.wheel) this.cameraRig.zoom(mouse.wheel);
     }
 
@@ -47,6 +47,8 @@ export class LocalInputSource {
       throwBag: i.pressed('KeyG'),
       aimOrigin: this.cameraRig.camera.position.clone(),
       aimDir: this.cameraRig.forward(),
+      aimRight: this.cameraRig.right(),
+      yaw: this.cameraRig.yaw,
     };
   }
 }

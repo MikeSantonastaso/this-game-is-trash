@@ -17,26 +17,22 @@ export class Picker {
   // Candidate = { kind: 'trash' | 'bag', ref, body }
   findTarget(game, intent) {
     const { reach } = this.player.stats;
-    const chest = this.player.chest();
-    const camDist = intent.aimOrigin.distanceTo(chest);
-    _to.copy(intent.aimOrigin).addScaledVector(intent.aimDir, camDist + reach + 1);
-    const hit = game.physics.raycast(intent.aimOrigin, _to, GROUP.TRASH | GROUP.BAG | GROUP.PROP | GROUP.GROUND);
+    const eye = this.player.eye();
+    _to.copy(eye).addScaledVector(intent.aimDir, reach + 0.5);
+    const hit = game.physics.raycast(eye, _to, GROUP.TRASH | GROUP.BAG | GROUP.PROP | GROUP.GROUND);
     if (hit) {
       const c = this.toCandidate(hit.body);
-      if (c && _v.copy(hit.point).distanceTo(chest) <= reach) return c;
+      if (c && _v.copy(hit.point).distanceTo(eye) <= reach) return c;
     }
-    // Aim assist: nearest pickable in front of you within reach.
-    const facing = this.player.facing();
+    // Aim assist: the pickable closest to the crosshair, within reach.
     let best = null, bestScore = Infinity;
     for (const c of game.pickables()) {
-      _v.copy(c.body.position);
-      const d = _v.distanceTo(chest);
+      _v.copy(c.body.position).sub(eye);
+      const d = _v.length();
       if (d > reach) continue;
-      _v.sub(this.player.feet()).setY(0);
-      const flat = _v.length();
-      const dot = flat > 0.01 ? _v.dot(facing) / flat : 1;
-      if (dot < 0.25) continue;
-      const score = d * (2 - dot);
+      const dot = _v.divideScalar(d || 1).dot(intent.aimDir);
+      if (dot < 0.8) continue;
+      const score = (1 - dot) * 8 + d * 0.15;
       if (score < bestScore) { bestScore = score; best = c; }
     }
     return best;
@@ -71,7 +67,7 @@ export class Picker {
   pick(game) {
     if (this.cooldown > 0) return false;
     this.cooldown = this.player.stats.cooldown;
-    this.player.model.clack();
+    this.player.viewmodel?.clack();
     const t = this.target;
     if (!t) return false;
     if (!this.collect(game, t)) return false;
