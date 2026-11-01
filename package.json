@@ -1,0 +1,17 @@
+{
+  "name": "this-game-is-trash",
+  "version": "0.1.0",
+  "description": "A co-op trash-collecting progression sim. Three.js + cannon-es prototype.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "vendor": "node scripts/vendor.mjs",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "cannon-es": "0.20.0",
+    "three": "0.170.0"
+  },
+  "license": "UNLICENSED"
+}
