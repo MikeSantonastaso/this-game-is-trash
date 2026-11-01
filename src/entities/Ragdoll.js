@@ -8,7 +8,7 @@
 // for Gary the intern. Every body carries userData so the Grabber can pick up
 // any limb: the foundation for grabbing friends in co-op and the truck arm.
 import * as THREE from 'three';
-import { CANNON, GROUP, MASK_ALL } from '../systems/PhysicsWorld.js';
+import { CANNON, GROUP, MASK_ALL, HELD_MASK } from '../systems/PhysicsWorld.js';
 
 const _v = new THREE.Vector3();
 const _q = new THREE.Quaternion();
@@ -24,12 +24,18 @@ const LIMBS = [
   { key: 'legR', from: 'UpperLegR', to: 'FootR', half: 0.075, mass: 7, angle: Math.PI / 3.2, twist: Math.PI / 8 },
 ];
 
+// Fixed body order, used to pack ragdoll poses into network snapshots.
+export const PART_ORDER = ['torso', 'head', 'armL', 'armR', 'legL', 'legR'];
+
 export class Ragdoll {
   /**
-   * @param {object} opts { model: Object3D (rigged instance from Assets), position: feet {x,y,z}, yaw, name }
+   * @param {object} opts { model: Object3D (rigged instance from Assets), position: feet {x,y,z}, yaw, name,
+   *   simulate: false makes a network puppet: kinematic bodies with no joints or
+   *   collisions whose poses come from the host. They can still be raycast (to grab). }
    */
   constructor(physics, scene, opts) {
     this.physics = physics;
+    this.simulate = opts.simulate !== false;
     this.scene = scene;
     this.name = opts.name ?? 'ragdoll';
     this.model = opts.model;
@@ -84,6 +90,7 @@ export class Ragdoll {
         axisA: A.vectorToLocalFrame(aw), axisB: B.vectorToLocalFrame(aw),
         angle, twistAngle: twist, collideConnected: false,
       });
+      if (!this.simulate) return;
       physics.world.addConstraint(c);
       this.constraints.push(c);
     };
@@ -113,11 +120,13 @@ export class Ragdoll {
 
   addPart(key, shape, mass, position, quaternion) {
     const body = new CANNON.Body({
-      mass, shape,
+      mass: this.simulate ? mass : 0,
+      type: this.simulate ? CANNON.Body.DYNAMIC : CANNON.Body.KINEMATIC,
+      shape,
       linearDamping: 0.05,
       angularDamping: 0.4,
       collisionFilterGroup: GROUP.RAGDOLL,
-      collisionFilterMask: MASK_ALL,
+      collisionFilterMask: this.simulate ? MASK_ALL : 0,
       allowSleep: true,
       sleepSpeedLimit: 0.15,
     });
@@ -185,7 +194,8 @@ export class Ragdoll {
   // carrier around). Counted so multiple grabbers (co-op) work.
   setHeld(isHeld) {
     this.held = Math.max(0, this.held + (isHeld ? 1 : -1));
-    const mask = this.held > 0 ? MASK_ALL & ~GROUP.PLAYER : MASK_ALL;
+    if (!this.simulate || this.disposed) return;
+    const mask = this.held > 0 ? HELD_MASK : MASK_ALL;
     for (const b of this.bodies) b.collisionFilterMask = mask;
   }
 

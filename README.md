@@ -1,18 +1,24 @@
 # This Game Is Trash
 
-A co-op (eventually) trash-collecting progression sim with ragdoll physics.
-Start with a sad little picker stick in a dirty park, fill bags, sell them at the
-dumpster, buy better gear, and work your way up to garbage trucks, your own dump,
-and the whole city. Also: grab your friends and throw them in the trash.
+Online co-op chaos for 1-4 friends on one small, hand-built block. Pick up trash, fill
+your bag, sell it at the dumpster, buy better pickers. Also: grab your friends and throw
+them in the dumpster, punch them, crash the truck into them, get drunk at the block party
+and blow the crew's money on Scratch-Its.
 
-This repo is the **browser prototype**: a first-person game in JavaScript +
-[Three.js](https://threejs.org) for rendering and [cannon-es](https://github.com/pmndrs/cannon-es)
-for physics, with CC0 low-poly models by [Quaternius](https://quaternius.com) (see `assets/CREDITS.md`).
-No build step; it runs as a static site on GitHub Pages. The plan is to port to
-Godot / Unity / Unreal once the loop is proven, so systems are kept small and
-data-driven (see [Architecture](#architecture)).
+It's a browser game: [Three.js](https://threejs.org) for rendering,
+[cannon-es](https://github.com/pmndrs/cannon-es) for physics and ragdolls, and
+[Trystero](https://github.com/dmotz/trystero) for serverless peer-to-peer multiplayer.
+Models and sounds are CC0 from [Quaternius](https://quaternius.com) and
+[Kenney](https://kenney.nl) (see `assets/CREDITS.md`). No build step, so it runs as a static
+site on GitHub Pages.
 
 ## Play it
+
+**With friends:** one person clicks **Host a game** and gets a room code (top left, with a
+*Copy invite link* button). Everyone else opens the invite link, or types the code and
+clicks **Join**. Up to 4 players. Works in desktop Chrome, Edge and Firefox.
+
+**Solo:** click **Play solo**.
 
 **Locally**
 
@@ -20,190 +26,110 @@ data-driven (see [Architecture](#architecture)).
 npm start          # zero-dependency static server -> http://localhost:8080
 ```
 
-Any static server works (`python3 -m http.server`, VS Code Live Server...). Opening
-`index.html` straight from disk won't work because browsers block ES modules on `file://`.
-On a slow laptop, add `?quality=low` to the URL. It turns off shadows and post-processing
-and thins the grass.
+Any static server works (`python3 -m http.server`...). Opening `index.html` straight from disk
+won't work because browsers block ES modules on `file://`. On a slow laptop add `?quality=low`
+to the URL (no shadows or post-processing, thinner grass).
 
-**GitHub Pages**: Settings → Pages → *Deploy from a branch* → `main` / `(root)`.
-Three.js and cannon-es are vendored in `/vendor`, so there is no CDN or build involved.
+**GitHub Pages**: Settings → Pages → *Deploy from a branch* → `main` / `(root)`. All libraries
+are vendored in `/vendor`.
 
 ### Controls
 
 | Key | Action |
 | --- | --- |
-| WASD / Shift / Space | Move / sprint / jump |
-| Mouse (click to lock), Arrow keys | Look (first person) |
-| Wheel | Zoom the chase camera while you're a ragdoll |
-| Left click (hold to repeat) | Pick up trash with the picker / throw what you're holding |
-| E or Right click | Grab or drop anything physical: trash, bags, **Gary** |
-| B | Tie off your bag early |
-| G | Throw a tied bag (land it in the dumpster to sell it) |
-| F | Use: sell at a dumpster, open Trash Mart, empty a curb bin, unlock a zone at its gate, buy / get in / get out of the truck, load bags into the truck bed |
-| R | Go ragdoll (camera pulls out to watch you tumble) / get back up. In the truck: eject |
-| M | Town map (there's also a minimap in the corner) |
-| H | Toggle the controls panel |
+| WASD / Shift / Space / Mouse | Move / sprint / jump / look (click to lock the mouse) |
+| Left click (hold) | Pick up trash with the picker. While holding something: throw it (Shift = harder) |
+| E or Right click | Grab or drop anything physical: trash, bags, couches, Gary, **your friends** |
+| Q or Middle click | Punch / shove. 3 quick hits, or one sprinting punch, knocks a friend out |
+| F | Use: sell at the dumpster, Trash Mart, curb bins, beer cooler, Scratch-It machine, load or drive the truck |
+| B / G | Tie off your bag / throw a tied bag (land it in the dumpster or the truck bed) |
+| R | Go ragdoll / get up. Mash it to break free when someone is carrying you |
+| H | Controls panel |
 
-**Driving the Rusty Pickup:** W/S throttle and reverse, A/D steer, Space brake, E sells the
-whole load when you're parked next to a dumpster, F gets out.
+**Truck:** W/S drive, A/D steer, Space brake, Q horn, E sells the whole load next to the
+dumpster, F gets out, R ejects you through the windshield. Crash hard enough and you get
+ejected anyway.
 
-## The map and zones
+## The block
 
-One big open map (about 500 m × 425 m) split into zones. You can see almost all of it
-from the start, but most of it is fenced off. Each zone opens when you meet its requirements,
-which are shown live (✓ / ✗) on a billboard at every gate. The full design is in
-[docs/PROGRESSION.md](docs/PROGRESSION.md).
+`src/data/block.js` lays out everything by hand, in meters (about 100 m × 70 m):
 
-| Zone | To unlock | Trash pays |
-| --- | --- | --- |
-| 1. Dumpy Park | free | 1× |
-| 2. Maple Court (small neighborhood) | $1,000 · own the Extendo-Picker · 20 bags sold | 1.6× |
-| 3. Oakridge Heights (big neighborhood) | $6,000 · own the Rusty Pickup · own the Double-Claw | 2.5× |
-| 4. Downtown (city skyline) | $50,000 · own the Garbage Truck · own the Trash Magnet (coming soon) | 4× |
+- **Rubbish Road** runs through the middle, with houses on both sides and an alley behind.
+  Curb bins at most houses (F empties one into your bag, or knock it over).
+- **Trash Mart** on the corner: pickers, upgrades and crew stats, plus the **Scratch-It**
+  machine out front ($25 a ticket, up to $2,000).
+- **The block party** in the yellow house's yard: beer cooler (each beer makes you
+  wobblier and leaves a can on the ground), grill, couch, toilet and other things to throw.
+- **Dump-n-Go yard**: the dumpster you sell to and the **Rusty Pickup**. Throw bags (or
+  friends) into the dumpster or the truck bed. Dunking Gary pays $25, dunking a friend $50.
+- A **plywood ramp** in the street.
 
-- **Gates and fences**: chain-link construction fence along zone borders, with a boom
-  barrier, guard booth and requirements billboard wherever a road crosses. Walk up and press F
-  once the sign is all green. The boom lifts and the fences between open zones come down.
-  You can also unlock zones from the Trash Mart's Zones tab.
-- **Neighborhoods**: ~300 houses along real streets with sidewalks, driveways, cul-de-sacs
-  and street trees, each with its own paint job. Most houses have a **curbside bin**: press F
-  to dump the whole bin into your bag. Bins refill over time.
-- **The Rusty Pickup** ($4,000, parked at the motor pool on Park Ave): an arcade truck that
-  bumps into houses, launches Gary and goes off the ramp. The bed holds 12 bags: throw bags
-  in (G) or press F at the tailgate. Park at any dumpster and press E to sell the load.
-  Gary and friends can ride in the bed until they fall out.
-- **Three dumpsters** (park, Maple Court, Oakridge) and a **Trash Mart Outlet** in Oakridge.
-  Trash keeps the value of the zone it came from.
-- **HUD**: current zone and its pay multiplier, a minimap, "now entering" banners, a full
-  map on M.
+## Multiplayer
 
-## What was in the first playable
+- Joining by room code uses Trystero's Nostr strategy: peers find each other through public
+  Nostr relays, then talk over WebRTC data channels. No game server to run.
+- **Host-authoritative.** The host simulates the world (trash, props, bags, Gary, the
+  dumpster, money and the crew's shop purchases) and sends snapshots at 20 Hz. Clients
+  interpolate them with a 110 ms delay.
+- Each player simulates their own character (sent at 30 Hz) so moving and picking feel
+  instant, and the truck is simulated by whoever is driving it. Actions like pick, grab,
+  throw, punch and sell are sent to the host, which validates them and broadcasts results.
+- The crew shares one wallet and one set of tools and upgrades. The host's browser keeps the save.
+- If the host leaves, the room ends.
+- Some strict networks (symmetric NAT, some corporate Wi-Fi) block WebRTC without a TURN
+  relay. Trystero accepts TURN servers in `src/net/Net.js` if that becomes a problem.
 
-- **First person** on foot: you see your gloved hands and the picker. The camera
-  switches to a chase view when you ragdoll; the same chase mode is meant for driving later.
-- **Dumpy Park in an open world**: no walls. The park (trees, bushes, rocks, benches with
-  tippable bins, lamps, paths, a launch ramp, the dumpster and the Trash Mart) sits beside a
-  street of houses (the future Small Neighborhood), with meadow and forest rolling out to
-  hills on the horizon. Walk far enough and you're gently turned back.
-  ~55 pieces of trash, respawning over time.
-- **Real models**: rigged Quaternius characters (you are the hi-vis Worker, Gary is the guy
-  in the purple hoodie), nature, street and building packs. All CC0.
-- **Picker tool** with generous aim assist. Trash goes into your **bag**; a full bag is
-  tied off automatically and hung on your **belt** (limited slots). When everything is
-  full you have to go sell.
-- **Selling**: press F at the dumpster, or throw bags / individual trash into it.
-- **Trash Mart**: 4 picker tiers (Standard → Extendo → Double-Claw → Trash Magnet with
-  auto-collect) and 4 levelled upgrades (bag size, belt slots, move speed, sale value).
-  Areas and property (garage, pickup, garbage truck, owning the dump) are listed as
-  coming soon so the long-term goals are visible.
-- **Ragdoll physics on real characters**: the ragdoll's bodies are measured from the
-  model's skeleton and drive its bones, so any rigged humanoid with the same bone names
-  works. Press R to flop; hard landings flop you automatically. Gary the intern is a ragdoll
-  NPC you can grab by any limb, carry, and throw. Dunking him in the dumpster pays a bonus.
-  Park bins are physics objects too: grab them, throw them.
-- **Physics grabbing**: a kinematic "hand" joined to the grabbed body with a
-  point-to-point constraint, so held things swing and dangle. This is the same
-  mechanism planned for grabbing friends in co-op and for the truck's lifting arm.
-- **Look**: a physical sky with matching environment light, soft shadows, ambient
-  occlusion (GTAO), light bloom, ACES tone mapping and a color grade. Ground, paths, road and
-  paving use real PBR textures (ambientCG, CC0). Lawns and meadows are instanced grass tufts
-  swaying in the wind. Trash is modelled (branded cans, labelled bottles, cups with lids,
-  foil wrappers, pizza boxes, tyres) with a few variants each. The HUD uses rounded navy
-  panels: a bag-fill ring and belt in the top left, money in the top right, the tool in the
-  bottom left.
-- **Saving** to localStorage (autosave every 10s and after purchases/sales).
+Testing on one machine: add `?net=local` to the URL and open two tabs. That uses a
+`BroadcastChannel` instead of WebRTC.
 
 ## Architecture
 
 ```
-index.html, style.css      page, HUD and shop markup
-assets/models/             CC0 glTF models (see assets/CREDITS.md)
-assets/textures/           CC0 PBR textures (color, normal, roughness)
-vendor/                    three.module.min.js, three addons (loaders, Sky, post-processing), cannon-es.js (npm run vendor)
+index.html, style.css      page, lobby, HUD and shop markup
+assets/models/             CC0 glTF models    assets/audio/  CC0 sounds    assets/textures/  CC0 PBR textures
+vendor/                    three, three addons, cannon-es, trystero (npm run vendor)
 src/
-  main.js                  boot
-  core/      Game.js (composition root + loop), GameState.js (progression, pure),
-             requirements.js (zone unlock checks, pure),
-             Assets.js (glTF loading, normalizing, instancing), EventBus.js, SaveSystem.js
-  data/      zones.js (map, zones, roads, gates), trash.js, tools.js, upgrades.js,
-             properties.js, models.js                                  <- tune the game here
-  systems/   PhysicsWorld.js (cannon wrapper, collision groups), Inventory.js (bags, pure),
-             Stats.js, TrashSpawner.js (per zone), LooseBags.js, DropOff.js (all dumpsters),
-             Zones.js (locks, gates, signs), CurbBins.js, CameraRig.js (first/chase)
-  render/    Graphics.js (renderer, sky, lights, post), Surfaces.js (PBR ground materials),
-             GrassField.js (instanced wind grass), TrashModels.js (procedural trash meshes)
-  entities/  Player.js, Ragdoll.js (skinned), Viewmodel.js (first-person hands + picker), Truck.js
-  tools/     Picker.js, Grabber.js
-  input/     Input.js (raw devices), LocalInputSource.js (-> PlayerIntent)
-  world/     World.js (builds the whole map), kit.js (instancing, batching, colliders),
-             builders/ roads, park, neighborhood, downtown, borders (fences + gates), structures
-  docs/      PROGRESSION.md: zones, requirements, tiers, economy
-  ui/        Hud.js, ShopUI.js, MapUI.js (minimap + full map), nameTag.js
-tests/       node --test unit tests for progression, bags, zones and unlocks (npm test)
+  main.js                  lobby: name, character, host / join / solo
+  core/      Game.js (composition root, loop, networking glue), GameState.js (money and
+             progression, pure), Assets.js, EventBus.js, SaveSystem.js
+  data/      block.js (the map), trash.js, tools.js, upgrades.js, models.js   <- tune the game here
+  net/       Net.js (Solo / Local / Trystero transports, room codes),
+             Interp.js (snapshot buffers), Entities.js (networked trash, props, bags, ragdolls)
+  sim/       HostSim.js: the authoritative world; handles every player action
+  entities/  LocalPlayer.js (your character: walk, pick, grab, punch, drunk, drive),
+             Avatar.js (other players: animated model, name tag, bag),
+             Ragdoll.js, Truck.js, Viewmodel.js (first-person hands, picker, bag)
+  systems/   PhysicsWorld.js (collision groups), Inventory.js (pure), Stats.js, CameraRig.js
+  render/    Graphics.js, Fx.js (pickup and coin effects, dust, world text), Surfaces.js,
+             GrassField.js, TrashModels.js
+  audio/     Sfx.js (Kenney samples + Web Audio synths, positional)
+  tools/     Grabber.js (physics hand: point-to-point constraint)
+  world/     Block.js (builds the block from data/block.js), kit.js, builders/structures.js
+  ui/        Hud.js, ShopUI.js, nameTag.js
+tests/       node --test unit tests (npm test)
 ```
 
-Design rules that keep co-op and the engine port cheap:
+Design rules:
 
-- **Content is data.** Trash types, tool tiers, upgrade curves, areas and property are
-  plain objects in `src/data/`. Adding a tier or an area's spawn table is a data change.
-  These map 1:1 to Godot Resources / Unity ScriptableObjects.
-- **Progression is pure.** `GameState` and `Inventory` have no rendering or physics, so
-  they're unit-tested in Node and are the obvious thing to sync/own on a co-op host.
-- **Players are driven by intents.** A `Player` only reads a `PlayerIntent`
-  (move, aim, pick, grab, flop...). Today `LocalInputSource` produces it from keyboard
-  and mouse; a second local player, a gamepad, or a network peer just needs another source.
-  `Game.players` is already a list.
-- **Physics is behind a thin layer.** Everything engine-specific lives in
-  `PhysicsWorld`, `Ragdoll` and `Grabber`. Every grabbable body carries `userData`
-  (`kind`, `grabbable`, `sellable`, `ragdoll`), which is how pickers, hands and the
-  dumpster decide what to do with it.
-- **The map is data.** Zones, streets, gates and borders live in `src/data/zones.js`. The
-  builders turn them into meshes and colliders; another suburb is mostly a data change
-  (see `world/builders/neighborhood.js`).
-- **Big but cheap.** Each model is merged into one vertex-colored geometry and drawn as
-  instanced chunks; chunks far from the camera are hidden behind the fog.
+- **Content is data.** Trash, pickers, upgrades and the map are plain objects in `src/data/`.
+- **The host owns the truth.** Anything shared lives in `HostSim`. Clients only predict
+  their own character and the truck they're driving. New features are a new action
+  (`act_<name>` in `HostSim`) and, if needed, a new `fx` event for everyone's effects.
+- **Progression is pure.** `GameState` and `Inventory` have no rendering or physics and are
+  unit-tested in Node.
+- **Physics is behind a thin layer** (`PhysicsWorld`, `Ragdoll`, `Grabber`). Grabbable
+  bodies carry `userData` (`kind`, `netId`, `grabbable`, `sellable`, `ragdoll`).
 
-## Roadmap
+URL flags for testing: `?quality=low`, `?net=local`, `?auto=host|solo|join` (skip the lobby).
 
-**Prototype (this repo)**
-- [x] Starting park, picker, bags + belt, dumpster selling, Trash Mart
-- [x] Tool tiers and levelled upgrades, save/load
-- [x] Ragdoll foundation: flop, grab/carry/throw ragdolls and objects
-- [x] First person, real CC0 models, open world around the park
-- [ ] Walk/idle animations for other players' characters (needed for co-op; the
-      Quaternius Universal Animation Library is CC0 and matches these rigs)
-- [ ] Real trash models (cans, bottles, bags) to replace the primitive shapes
-- [ ] Sound effects (picker clack, bag tie, ragdoll thuds, Gary noises)
-- [ ] Juice: dust puffs, bag-fill wobble, money fly-to-HUD
+## Next up
+
+- [ ] Playtest online with real friends; add a TURN fallback if anyone can't connect
+- [ ] Host migration (today the room ends when the host leaves)
 - [ ] Gamepad support
-- [ ] Local co-op test: second `Player` on a gamepad, shared money
-- [ ] Online co-op (WebRTC/WebSocket host-authoritative): sync GameState + player
-      intents; ragdolls simulated by the host
+- [ ] More chaos: shopping carts, a garbage truck with a grabber arm, a porta-potty to lock friends in
+- [ ] Gambling beyond Scratch-Its (a dice game at the party?), proper drinking games
+- [ ] Cosmetics bought with crew money
 
-**Zones**
-1. Dumpy Park (starting area) ✅
-2. Maple Court, small neighborhood: curbside bins, cul-de-sacs ✅
-3. Oakridge Heights, big neighborhood: whole blocks, truck routes ✅
-4. Downtown: skyline and gates in place; alleys, commercial dumpsters, fleet management to come
-5. The Dump: own it for passive income
-
-**Equipment scaling**
-- Pickers: Standard → Extendo → Double-Claw → Trash Magnet → leaf-vac backpack → trash cannon
-- Bags → contractor bags → wheelie bin you push around
-- Vehicles: wheelbarrow → rusty pickup (friends ride in the bed) ✅ → garbage truck
-
-**Ownership**
-- Garage: store vehicles/tools, cosmetic outfits
-- Trucks: buy, upgrade, assign routes
-- Own the dump: stop selling to it, become it, passive income
-
-**Physics comedy (the point)**
-- Grab friends by any limb, carry them, throw them into the dumpster / truck hopper
-- Garbage truck with a lifting arm that grabs cans, and also grabs friends
-  (reuses `Grabber` with the arm's claw as the anchor)
-- Truck bed / compactor interactions, ragdoll-on-impact when hit by thrown objects
-
-**Port**
-- Once the loop is fun, port to Godot (or Unity/Unreal). `src/data` and the pure
-  logic in `GameState` / `Inventory` port directly; physics and rendering get rewritten
-  against the engine's own ragdoll/joint systems.
+`docs/PROGRESSION.md` is the earlier long-term design (zones, trucks, owning the dump). It's
+on hold while the block is made fun first.

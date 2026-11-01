@@ -5,11 +5,12 @@
 //
 // The same class is meant to drive the garbage truck's lifting arm later: give
 // it a different anchor (the claw tip) and a higher maxForce.
-import { CANNON, GROUP, MASK_ALL } from '../systems/PhysicsWorld.js';
+import { CANNON, GROUP, HELD_MASK } from '../systems/PhysicsWorld.js';
 
 export class Grabber {
-  constructor(physics, { maxForce = 1400 } = {}) {
+  constructor(physics, { maxForce = 1400, owner = null } = {}) {
     this.physics = physics;
+    this.owner = owner; // player id, so thrown things know who threw them
     this.maxForce = maxForce;
     this.hand = new CANNON.Body({
       mass: 0,
@@ -37,8 +38,9 @@ export class Grabber {
 
     const ud = body.userData ?? {};
     this.held = { body, ud, mask: body.collisionFilterMask };
+    ud.lastHeldBy = this.owner;
     if (ud.ragdoll) ud.ragdoll.setHeld(true);
-    else body.collisionFilterMask = MASK_ALL & ~GROUP.PLAYER;
+    else body.collisionFilterMask = HELD_MASK;
     return this.held;
   }
 
@@ -59,6 +61,7 @@ export class Grabber {
   release() {
     if (!this.held) return null;
     const held = this.held;
+    held.ud.releasedAt = performance.now();
     this.physics.world.removeConstraint(this.constraint);
     this.constraint = null;
     this.held = null;
@@ -69,15 +72,23 @@ export class Grabber {
       t: 0.35,
       restore: () => {
         if (held.ud.ragdoll) held.ud.ragdoll.setHeld(false);
-        else held.body.collisionFilterMask = held.mask;
+        else if (held.body.world) held.body.collisionFilterMask = held.mask;
       },
     });
     return held;
   }
 
+  dispose() {
+    this.release();
+    for (const p of this.pendingRestore) p.restore();
+    this.pendingRestore = [];
+    this.physics.world.removeBody(this.hand);
+  }
+
   throw(dir, speed = 14, lift = 4) {
     const held = this.release();
     if (!held) return null;
+    held.ud.thrownAt = performance.now();
     const v = { x: dir.x * speed, y: dir.y * speed + lift, z: dir.z * speed };
     if (held.ud.ragdoll) { held.ud.ragdoll.setVelocity(v); held.ud.ragdoll.addSpin(6); }
     else {

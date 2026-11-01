@@ -37,3 +37,13 @@ const visit = (rel) => {
 };
 ADDONS.forEach(visit);
 console.log(`three addons: ${[...seen].join(', ')}`);
+
+// Trystero (serverless WebRTC rooms over public Nostr relays) ships as many
+// ES modules with npm dependencies, so bundle it into a single minified file.
+const { build } = await import('esbuild');
+await build({
+  stdin: { contents: "export * from 'trystero/nostr';", resolveDir: process.cwd() },
+  bundle: true, format: 'esm', minify: true, target: 'es2022', outfile: 'vendor/trystero.js',
+});
+copyFileSync('node_modules/trystero/LICENSE', 'vendor/trystero.LICENSE');
+console.log('trystero (nostr) -> vendor/trystero.js');

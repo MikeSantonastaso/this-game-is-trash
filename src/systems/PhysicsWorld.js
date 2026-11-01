@@ -12,8 +12,11 @@ export const GROUP = {
   BAG: 32,
   HAND: 64,
   VEHICLE: 128,
+  REMOTE: 256, // other players' capsules (kinematic stand-ins driven by the network)
 };
 export const MASK_ALL = 0xffff & ~GROUP.HAND;
+// Something being carried ignores every player capsule so it can't shove its carrier.
+export const HELD_MASK = MASK_ALL & ~(GROUP.PLAYER | GROUP.REMOTE);
 
 export class PhysicsWorld {
   constructor() {

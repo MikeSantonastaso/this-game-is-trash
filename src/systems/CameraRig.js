@@ -46,7 +46,7 @@ export class CameraRig {
   // target: eye position in first person, focus point in chase mode.
   // walkSpeed: horizontal speed for a subtle head bob.
   update(dt, target, walkSpeed = 0) {
-    this._euler.set(this.pitch, this.yaw, 0);
+    this._euler.set(this.pitch, this.yaw, this.roll ?? 0);
     this.camera.quaternion.setFromEuler(this._euler);
     if (this.mode === 'first') {
       this.bobPhase += dt * walkSpeed * 1.9;
