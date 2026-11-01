@@ -11,6 +11,7 @@ export const GROUP = {
   PROP: 16,
   BAG: 32,
   HAND: 64,
+  VEHICLE: 128,
 };
 export const MASK_ALL = 0xffff & ~GROUP.HAND;
 
@@ -27,6 +28,7 @@ export class PhysicsWorld {
       default: this.world.defaultMaterial,
       ground: new CANNON.Material('ground'),
       player: new CANNON.Material('player'),
+      vehicle: new CANNON.Material('vehicle'),
     };
     // The player controller sets velocity directly, so zero friction keeps it
     // from sticking to walls and slopes.
@@ -34,6 +36,10 @@ export class PhysicsWorld {
       this.world.addContactMaterial(new CANNON.ContactMaterial(this.materials.player, other, { friction: 0, restitution: 0 }));
     }
     this.world.addContactMaterial(new CANNON.ContactMaterial(this.materials.ground, this.materials.default, { friction: 0.5, restitution: 0.15 }));
+    // Vehicles also set their own velocity: slide on the ground and walls, but
+    // keep enough grip that cargo (bags, Gary) rides along in the bed. Mostly.
+    this.world.addContactMaterial(new CANNON.ContactMaterial(this.materials.vehicle, this.materials.ground, { friction: 0, restitution: 0 }));
+    this.world.addContactMaterial(new CANNON.ContactMaterial(this.materials.vehicle, this.materials.default, { friction: 0.7, restitution: 0.05 }));
 
     this.links = new Map();
     this._ray = new CANNON.RaycastResult();

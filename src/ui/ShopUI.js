@@ -1,8 +1,9 @@
-// "Trash Mart": tools, upgrades, areas and property. Reads/writes GameState only.
+// "Trash Mart": tools, upgrades, zones and property. Reads/writes GameState only.
 import { TOOLS, TOOL_ORDER } from '../data/tools.js';
 import { UPGRADES, UPGRADE_ORDER } from '../data/upgrades.js';
-import { AREAS } from '../data/areas.js';
+import { ZONES } from '../data/zones.js';
 import { PROPERTIES } from '../data/properties.js';
+import { checkRequirements, canUnlock, unlockFee } from '../core/requirements.js';
 
 const money = (n) => `$${n.toLocaleString()}`;
 
@@ -45,14 +46,15 @@ export class ShopUI {
     if (action === 'buyTool') res = s.buyTool(id);
     if (action === 'equipTool') s.equipTool(id);
     if (action === 'buyUpgrade') res = s.buyUpgrade(id);
-    if (action === 'buyArea') res = s.buyArea(id);
+    if (action === 'unlockZone') res = s.unlockZone(id);
+    if (action === 'buyProperty') res = s.buyProperty(id);
     if (action === 'reset') {
       if (confirm('Wipe your save and start over?')) this.game.resetSave();
     }
     if (!res.ok) {
-      const msg = { money: 'Not enough cash. Go find more trash.', max: 'Maxed out!', soon: 'Coming in a future update!' }[res.reason];
+      const msg = { money: 'Not enough cash. Go find more trash.', max: 'Maxed out!', soon: 'Coming in a future update!', missing: 'Requirements not met yet' }[res.reason];
       if (msg) this.game.toast(msg, 'warn', 'shop');
-    } else if (action.startsWith('buy')) {
+    } else if (action.startsWith('buy') || action === 'unlockZone') {
       this.game.toast('Purchased! 🎉', 'money');
       this.game.save();
     }
@@ -61,7 +63,7 @@ export class ShopUI {
 
   render() {
     const s = this.game.state;
-    const tabs = [['tools', 'Tools'], ['upgrades', 'Upgrades'], ['areas', 'Areas'], ['property', 'Property']];
+    const tabs = [['tools', 'Tools'], ['upgrades', 'Upgrades'], ['areas', 'Zones'], ['property', 'Vehicles & Property']];
     document.getElementById('shop-money').textContent = money(s.money);
     document.getElementById('shop-tabs').innerHTML = tabs
       .map(([id, label]) => `<button class="tab ${this.tab === id ? 'on' : ''}" data-action="tab" data-id="${id}">${label}</button>`)
@@ -104,19 +106,26 @@ export class ShopUI {
 
   areas() {
     const s = this.game.state;
-    return AREAS.map((a) => {
-      const unlocked = s.unlockedAreas.includes(a.id);
-      const button = unlocked ? `<button disabled>${s.currentArea === a.id ? 'You are here' : 'Unlocked'}</button>`
-        : a.comingSoon ? `<button disabled title="Coming soon">${money(a.unlockCost)} · Soon</button>`
-        : `<button class="buy" data-action="buyArea" data-id="${a.id}" ${s.money < a.unlockCost ? 'disabled' : ''}>${money(a.unlockCost)}</button>`;
-      return this.card({ title: a.name, desc: a.description, meta: `${a.valueMultiplier}x trash value`, button });
-    }).join('');
+    return ZONES.map((z) => {
+      const unlocked = s.isUnlocked(z.id);
+      const check = canUnlock(s, z);
+      const fee = unlockFee(z);
+      const button = unlocked ? `<button disabled>${this.game.zones.zoneOf(this.game.localPlayer).id === z.id ? 'You are here' : 'Open'}</button>`
+        : z.comingSoon ? '<button disabled>Coming soon</button>'
+        : `<button class="buy" data-action="unlockZone" data-id="${z.id}" ${check.ok ? '' : 'disabled'}>Unlock · ${money(fee)}</button>`;
+      const reqs = unlocked || !z.requirements.length ? ''
+        : `<ul class="reqs">${checkRequirements(s, z).map((r) => `<li class="${r.met ? 'met' : 'miss'}">${r.label}${r.progress ? ` <span>${r.progress}</span>` : ''}</li>`).join('')}</ul>`;
+      return `<div class="card zone" style="--zone:${z.color}"><div class="card-main"><h3>Zone ${z.order}: ${z.name}</h3><p>${z.tagline}. ${z.description ?? 'Where it all begins.'}</p><p class="meta">Trash pays ${z.valueMultiplier}×</p>${reqs}</div>${button}</div>`;
+    }).join('') + '<p class="fineprint">You can also unlock a zone at any of its gates once the sign shows all green.</p>';
   }
 
   property() {
+    const s = this.game.state;
     return PROPERTIES.map((p) => this.card({
       title: p.name, desc: p.description,
-      button: `<button disabled>${money(p.cost)} · Soon</button>`,
+      button: s.ownsProperty(p.id) ? '<button disabled>Owned</button>'
+        : p.available ? `<button class="buy" data-action="buyProperty" data-id="${p.id}" ${s.money < p.cost ? 'disabled' : ''}>${money(p.cost)}</button>`
+        : `<button disabled>${money(p.cost)} · Soon</button>`,
     })).join('') + `<p class="fineprint">Lifetime earnings ${money(this.game.state.lifetimeEarned)} · ${this.game.state.stats.itemsPicked} items picked · Gary dunked ${this.game.state.stats.garyDunks}x
       <button class="link" data-action="reset">Wipe save</button></p>`;
   }

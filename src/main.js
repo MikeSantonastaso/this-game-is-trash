@@ -20,6 +20,7 @@ try {
     game.input.requestLock();
     game.start();
     game.toast('Pick up trash, fill bags, sell them at the dumpster. Press H for controls.', 'info');
+    if (game.state.unlockedAreas.length < 2) setTimeout(() => game.toast('The neighborhoods across Park Ave are locked. Each gate\'s sign shows what it takes. M opens the map.', 'info'), 4000);
   });
 } catch (err) {
   console.error(err);

@@ -8,12 +8,25 @@ export class Hud {
       money: $('hud-money'), bagRing: $('hud-bag-ring'), bagPanel: $('hud-bag'), bagCount: $('hud-bag-count'),
       belt: $('hud-belt'), tool: $('hud-tool'), prompt: $('hud-prompt'),
       toasts: $('toasts'), crosshair: $('crosshair'), help: $('help'),
+      zone: $('hud-zone'), zoneName: $('hud-zone-name'), zoneMult: $('hud-zone-mult'),
+      banner: $('zone-banner'), truck: $('hud-truck'),
     };
     this.cache = {};
     this.toastKeys = new Map();
     this.shownMoney = game.state.money;
     game.events.on('money:earned', ({ amount }) => this.popMoney(amount));
     window.addEventListener('keydown', (e) => { if (e.code === 'KeyH') this.el.help.classList.toggle('hidden'); });
+    game.events.on('zone:entered', ({ zone, first }) => { if (!first) this.banner(zone); });
+    game.events.on('zone:unlocked', ({ zone }) => this.banner(zone, 'UNLOCKED'));
+  }
+
+  banner(zone, kicker = 'NOW ENTERING') {
+    const el = this.el.banner;
+    el.innerHTML = `<small>${kicker}</small><b>${zone.name}</b><span>${zone.tagline} · trash pays ${zone.valueMultiplier}×</span>`;
+    el.style.setProperty('--zone', zone.color);
+    el.classList.remove('show');
+    void el.offsetWidth; // restart the animation
+    el.classList.add('show');
   }
 
   set(key, el, value, prop = 'textContent') {
@@ -38,6 +51,14 @@ export class Hud {
     const belt = Array.from({ length: inv.slots }, (_, i) => `<span class="slot ${i < inv.tied.length ? 'on' : ''}"></span>`).join('');
     this.set('belt', this.el.belt, belt, 'innerHTML');
     this.set('tool', this.el.tool, stats.tool.name);
+    const zone = this.game.zones.zoneOf(p);
+    this.set('zoneName', this.el.zoneName, zone.name);
+    this.set('zoneMult', this.el.zoneMult, `${zone.valueMultiplier}×`);
+    this.set('zoneColor', this.el.zone.style, zone.color, 'borderColor');
+    const truck = this.game.truck;
+    const showTruck = truck.owned && (p.vehicle || truck.bed.length > 0);
+    this.set('truckOn', this.el.truck, showTruck ? 'panel' : 'panel hidden', 'className');
+    if (showTruck) this.set('truck', this.el.truck, `<small>TRUCK BED</small><b>${truck.bed.length}/12</b>`, 'innerHTML');
 
     this.set('prompt', this.el.prompt, this.promptText(), 'innerHTML');
     this.set('cross', this.el.crosshair, p.picker.target ? 'active' : '', 'className');
@@ -45,21 +66,36 @@ export class Hud {
 
   promptText() {
     const g = this.game, p = g.localPlayer, inv = p.inventory;
+    const $$ = (n) => `$${Math.round(n).toLocaleString()}`;
+    if (p.vehicle) {
+      const t = p.vehicle;
+      const atDump = g.dropOff.at(t.position, 8);
+      if (atDump && (t.bed.length || !inv.isEmpty)) return `<kbd>E</kbd> sell the load for <b>${$$(g.dropOff.saleValue([...t.bed, ...inv.tied, inv.current]))}</b> · <kbd>F</kbd> get out`;
+      return '<kbd>W</kbd><kbd>S</kbd> drive · <kbd>A</kbd><kbd>D</kbd> steer · <kbd>Space</kbd> brake · <kbd>F</kbd> get out · <kbd>R</kbd> eject';
+    }
     if (p.isFlopped) return '<kbd>R</kbd> get up';
     if (p.grabber.isHolding) {
       const ud = p.grabber.held.ud;
       const what = ud.ragdoll ? ud.ragdoll.name : ud.kind === 'bag' ? 'bag' : ud.item?.def.name ?? ud.name ?? 'it';
       return `Holding ${what} · <kbd>LMB</kbd> throw · <kbd>E</kbd> drop`;
     }
-    if (g.dropOff.isNear(p)) {
-      if (inv.isEmpty) return 'Dumpster · bring trash here to sell';
-      const bags = inv.tied.length + (inv.current.used > 0 ? 1 : 0);
-      return `<kbd>F</kbd> sell ${bags} bag${bags > 1 ? 's' : ''} for <b>$${g.dropOff.saleValue([...inv.tied, inv.current])}</b>`;
+    const it = g.interactTarget(p);
+    if (it?.kind === 'sell') {
+      const d = g.dropOff.at(p.feet());
+      const truck = g.dropOff.truckNear(d);
+      if (inv.isEmpty && !truck) return 'Dumpster · bring trash here to sell';
+      const bags = [...inv.tied, ...(inv.current.used > 0 ? [inv.current] : []), ...(truck ? truck.bed : [])];
+      return `<kbd>F</kbd> sell ${bags.length} bag${bags.length > 1 ? 's' : ''}${truck ? ' (incl. truck)' : ''} for <b>${$$(g.dropOff.saleValue(bags))}</b>`;
     }
-    if (p.feet().distanceTo(g.layout.shop.position) < g.layout.shop.interactRadius) return '<kbd>F</kbd> open Trash Mart';
-    if (inv.isFull) return '<b>Bags full!</b> Sell at the dumpster';
+    if (it?.kind === 'shop') return `<kbd>F</kbd> open ${it.shop.label === 'TRASH MART' ? 'Trash Mart' : 'Trash Mart Outlet'}`;
+    if (it?.kind === 'bin') return `<kbd>F</kbd> empty curb bin · ${it.bin.items} items ≈ <b>${$$(g.bins.estimate(it.bin))}</b>`;
+    if (it?.kind === 'load') return `<kbd>F</kbd> load your bags into the truck bed (${g.truck.bed.length}/12)`;
+    if (it?.kind === 'drive') return `<kbd>F</kbd> drive the Rusty Pickup${g.truck.bed.length ? ` · bed ${g.truck.bed.length}/12` : ''}`;
+    if (it?.kind === 'buyTruck') return g.state.money >= 4000 ? '<kbd>F</kbd> buy the Rusty Pickup for <b>$4,000</b>' : 'Rusty Pickup for sale · <b>$4,000</b>';
+    if (it?.kind === 'gate') return g.zones.gatePrompt(it.gate);
+    if (inv.isFull) return '<b>Bags full!</b> Sell at a dumpster';
     const t = p.picker.target;
-    if (t?.kind === 'trash') return `<kbd>LMB</kbd> pick up ${t.ref.def.name} <b>$${t.ref.value}</b>`;
+    if (t?.kind === 'trash') return `<kbd>LMB</kbd> pick up ${t.ref.def.name} <b>$${+t.ref.value.toFixed(1)}</b>`;
     if (t?.kind === 'bag') return '<kbd>LMB</kbd> hang bag back on belt';
     return '';
   }

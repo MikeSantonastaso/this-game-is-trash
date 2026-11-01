@@ -28,6 +28,10 @@
     <div id="hud-money-panel" class="panel">
       <span class="coin">$</span><div class="money-wrap"><div id="hud-money">0</div></div>
     </div>
+    <div id="hud-zone" class="panel"><span id="hud-zone-name">Dumpy Park</span><span id="hud-zone-mult">1×</span></div>
+    <div id="hud-truck" class="panel hidden"></div>
+    <div id="minimap" class="panel"><canvas id="minimap-canvas" width="180" height="180"></canvas><small>M · MAP</small></div>
+    <div id="zone-banner"></div>
     <div id="hud-tool-panel" class="panel">
       <div class="tool-icon"></div>
       <div><small>TOOL</small><div id="hud-tool"></div></div>
@@ -43,8 +47,10 @@
       <div><kbd>E</kbd> / <kbd>RMB</kbd> grab or drop anything, including Gary</div>
       <div><kbd>B</kbd> tie bag early · <kbd>G</kbd> throw a bag</div>
       <div><kbd>F</kbd> sell at dumpster / open shop</div>
-      <div><kbd>R</kbd> go ragdoll (camera pulls out) / get back up</div>
-      <div><kbd>H</kbd> toggle this help</div>
+      <div><kbd>F</kbd> also: empty curb bins, unlock zones at gates, drive the truck</div>
+      <div>Driving: <kbd>WASD</kbd> · <kbd>Space</kbd> brake · <kbd>E</kbd> sell load at a dumpster · <kbd>F</kbd> get out</div>
+      <div><kbd>R</kbd> go ragdoll / get back up (in the truck: eject!)</div>
+      <div><kbd>M</kbd> map · <kbd>H</kbd> toggle this help</div>
     </div>
   </div>
 
@@ -61,12 +67,21 @@
     </div>
   </div>
 
+  <div id="map" class="hidden">
+    <div class="map-panel">
+      <header><h2>MAP</h2><button class="close" data-action="close" aria-label="Close">✕</button></header>
+      <canvas id="map-canvas" width="1000" height="850"></canvas>
+      <div id="map-legend"></div>
+      <footer><kbd>M</kbd> / <kbd>Esc</kbd> to close</footer>
+    </div>
+  </div>
+
   <div id="start">
     <div class="start-card">
       <h1>THIS GAME<br />IS <span>TRASH</span></h1>
-      <p>Clean up Dumpy Park one wrapper at a time. Sell bags at the dumpster, buy better gear, and throw Gary the intern into the garbage.</p>
+      <p>Clean up Dumpy Park one wrapper at a time. Sell bags at the dumpster, buy better gear, unlock the neighborhoods behind the fences, and throw Gary the intern into the garbage.</p>
       <button id="start-btn">Clock in</button>
-      <p class="small">WASD move · Mouse look · LMB pick · E grab · F sell/shop · R ragdoll · H help</p>
+      <p class="small">WASD move · Mouse look · LMB pick · E grab · F sell/shop/use · R ragdoll · M map · H help</p>
       <p id="start-error" class="error"></p>
     </div>
   </div>

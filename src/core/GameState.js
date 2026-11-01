@@ -3,7 +3,9 @@
 // test, sync over the network for co-op, and port to another engine.
 import { TOOLS } from '../data/tools.js';
 import { UPGRADES } from '../data/upgrades.js';
-import { AREAS } from '../data/areas.js';
+import { getZone } from '../data/zones.js';
+import { getProperty } from '../data/properties.js';
+import { canUnlock, unlockFee } from './requirements.js';
 
 const fresh = () => ({
   money: 0,
@@ -11,9 +13,9 @@ const fresh = () => ({
   ownedTools: ['picker_basic'],
   equippedTool: 'picker_basic',
   upgrades: { bagSize: 0, bagSlots: 0, moveSpeed: 0, haggle: 0 },
-  unlockedAreas: ['park'],
-  currentArea: 'park',
-  stats: { itemsPicked: 0, bagsSold: 0, garyDunks: 0 },
+  unlockedAreas: ['park'], // zone ids (key kept from the first prototype's saves)
+  ownedProperties: [],
+  stats: { itemsPicked: 0, bagsSold: 0, garyDunks: 0, binsEmptied: 0, garyBonks: 0 },
 });
 
 export class GameState {
@@ -99,13 +101,32 @@ export class GameState {
     return { ok: true };
   }
 
-  // ---- Areas ----
-  buyArea(id) {
-    const area = AREAS.find((a) => a.id === id);
-    if (!area || this.unlockedAreas.includes(id)) return { ok: false, reason: 'owned' };
-    if (area.comingSoon) return { ok: false, reason: 'soon' };
-    if (!this.spend(area.unlockCost)) return { ok: false, reason: 'money' };
+  // ---- Zones ----
+  isUnlocked(id) { return this.unlockedAreas.includes(id); }
+
+  // Checks every requirement, pays the fee, opens the zone.
+  unlockZone(id) {
+    const zone = getZone(id);
+    if (!zone) return { ok: false, reason: 'unknown' };
+    const check = canUnlock(this, zone);
+    if (!check.ok) return check;
+    if (!this.spend(unlockFee(zone))) return { ok: false, reason: 'money', missing: [] };
     this.unlockedAreas.push(id);
+    this.events?.emit('zone:unlocked', { zone });
+    this.changed();
+    return { ok: true };
+  }
+
+  // ---- Property & vehicles ----
+  ownsProperty(id) { return this.ownedProperties.includes(id); }
+
+  buyProperty(id) {
+    const prop = getProperty(id);
+    if (!prop || this.ownsProperty(id)) return { ok: false, reason: 'owned' };
+    if (!prop.available) return { ok: false, reason: 'soon' };
+    if (!this.spend(prop.cost)) return { ok: false, reason: 'money' };
+    this.ownedProperties.push(id);
+    this.events?.emit('property:bought', { property: prop });
     this.changed();
     return { ok: true };
   }

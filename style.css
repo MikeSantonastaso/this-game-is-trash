@@ -100,6 +100,39 @@ kbd {
 button.link { background: none; border: 0; color: #ff8a8a; text-decoration: underline; cursor: pointer; font: inherit; }
 .shop-panel footer { padding: 10px 20px 14px; color: var(--muted); font-size: 13px; }
 
+/* ---------- Zones, minimap, truck ---------- */
+#hud-zone { top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: baseline; gap: 10px; padding: 6px 16px; border-width: 2px 2px 4px; }
+#hud-zone-name { font-size: 22px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; }
+#hud-zone-mult { font-size: 18px; font-weight: 800; color: var(--money); }
+#hud-truck { top: 104px; left: 16px; padding: 6px 14px; display: flex; align-items: baseline; gap: 10px; }
+#hud-truck b { font-size: 22px; }
+#minimap { right: 16px; bottom: 16px; padding: 6px; border-radius: 50%; width: 196px; height: 196px; }
+#minimap canvas { width: 180px; height: 180px; border-radius: 50%; display: block; }
+#minimap small { position: absolute; left: 50%; bottom: -8px; transform: translateX(-50%); background: var(--panel-hud); border: 2px solid var(--rim); border-radius: 8px; padding: 0 8px; }
+#zone-banner { position: absolute; left: 50%; top: 22%; transform: translateX(-50%); text-align: center; opacity: 0; pointer-events: none; text-shadow: 0 3px 0 rgba(0,0,0,0.45), 0 0 24px rgba(0,0,0,0.3); }
+#zone-banner small { display: block; font-size: 20px; font-weight: 800; letter-spacing: 0.3em; color: #fff; }
+#zone-banner b { display: block; font-size: clamp(42px, 8vw, 84px); font-weight: 800; line-height: 1; color: #fff; -webkit-text-stroke: 2px var(--zone, #2d6cdf); }
+#zone-banner span { display: inline-block; margin-top: 8px; font-size: 22px; font-weight: 700; background: var(--zone, #2d6cdf); padding: 2px 14px; border-radius: 8px; }
+#zone-banner.show { animation: banner 3.2s ease forwards; }
+@keyframes banner { 0% { opacity: 0; transform: translate(-50%, 12px); } 12% { opacity: 1; transform: translate(-50%, 0); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+#map { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,0.5); padding: 16px; }
+.map-panel { width: min(1040px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; background: #1c2126; border-radius: 18px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.map-panel header { display: flex; align-items: center; padding: 12px 20px; background: #2d6cdf; }
+.map-panel h2 { margin: 0; flex: 1; font-size: 24px; font-weight: 900; letter-spacing: 0.06em; }
+.map-panel .close { background: none; border: 0; color: #fff; font-size: 22px; cursor: pointer; }
+#map-canvas { width: 100%; height: auto; min-height: 0; flex: 1; object-fit: contain; background: #20301c; }
+#map-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 10px 20px 0; font-size: 13px; color: var(--muted); }
+#map-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+.map-panel footer { padding: 8px 20px 12px; color: var(--muted); font-size: 13px; }
+
+.card.zone { border-left: 6px solid var(--zone); }
+.reqs { list-style: none; margin: 6px 0 0; padding: 0; font-size: 13px; }
+.reqs li { margin: 2px 0; color: #e6e6e6; }
+.reqs li.met::before { content: '✓ '; color: #3cc65a; font-weight: 900; }
+.reqs li.miss::before { content: '✗ '; color: #e25555; font-weight: 900; }
+.reqs li span { color: var(--muted); }
+
 /* ---------- Start screen ---------- */
 #start { position: fixed; inset: 0; display: grid; place-items: center; background: linear-gradient(rgba(10,20,10,0.55), rgba(10,20,10,0.75)); padding: 16px; }
 .start-card { max-width: 520px; text-align: center; }
@@ -117,4 +150,8 @@ button.link { background: none; border: 0; color: #ff8a8a; text-decoration: unde
   #hud-money { font-size: 28px; }
   .gauge { width: 56px; height: 56px; }
   #hud-tool { font-size: 18px; }
+  #minimap { width: 128px; height: 128px; }
+  #minimap canvas { width: 112px; height: 112px; }
+  #hud-zone { top: auto; bottom: 150px; }
+  #hud-zone-name { font-size: 17px; }
 }

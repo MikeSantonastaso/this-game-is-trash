@@ -48,6 +48,7 @@ export class Player {
     this.ragdoll = null;
     this.flopTime = 0;
     this.thrownAway = false;
+    this.vehicle = null;
     this.applyStats();
   }
 
@@ -70,6 +71,7 @@ export class Player {
 
   // Where the camera should be (first person) or look at (chase).
   cameraTarget(out = new THREE.Vector3()) {
+    if (this.vehicle) return out.copy(this.vehicle.position).add(_v.set(0, 1.6, 0));
     if (this.ragdoll) return out.copy(this.ragdoll.position).add(_v.set(0, 0.5, 0));
     return this.eye(out);
   }
@@ -80,6 +82,7 @@ export class Player {
   update(dt, intent) {
     const game = this.game;
     if (intent.yaw !== undefined) this.yaw = intent.yaw;
+    if (this.vehicle) { this.updateDriving(dt, intent); return; }
     if (this.ragdoll) {
       this.flopTime += dt;
       if (intent.flop && this.flopTime > 0.4) this.getUp();
@@ -89,7 +92,6 @@ export class Player {
 
     this.checkGround();
     this.move(dt, intent);
-    this.keepInWorld();
 
     if (intent.flop) { this.flop(); return; }
 
@@ -120,12 +122,13 @@ export class Player {
 
   // ---- After physics step ----
   lateUpdate(dt) {
+    if (!this.ragdoll && !this.vehicle) this.game.zones.constrainBody(this.body, 0.45, this);
     this.ragdoll?.sync();
     this.viewmodel?.update(dt, {
       speed: this.horizontalSpeed(),
       grounded: this.grounded,
       holding: this.grabber.isHolding,
-      visible: !this.ragdoll,
+      visible: !this.ragdoll && !this.vehicle,
     });
   }
 
@@ -156,19 +159,46 @@ export class Player {
     if (intent.jump && this.grounded) { v.y = 7.5; this.grounded = false; }
   }
 
-  // The world is open, but only the park is built. Past the edge you get
-  // gently turned around instead of hitting an invisible wall.
-  keepInWorld() {
-    const limit = this.game.layout.walkRadius;
-    if (!limit) return;
-    const p = this.body.position;
-    const d = Math.hypot(p.x, p.z);
-    if (d > limit) {
-      const push = Math.min((d - limit) * 3, 12);
-      this.body.velocity.x -= (p.x / d) * push;
-      this.body.velocity.z -= (p.z / d) * push;
-      this.game.toast('Nothing out there yet. The rest of the world is coming in a future update!', 'info', 'edge');
+  // ---- Driving ----
+  enterVehicle(vehicle) {
+    if (this.vehicle || this.ragdoll || vehicle.driver) return false;
+    this.grabber.release();
+    this.vehicle = vehicle;
+    vehicle.driver = this;
+    this.game.physics.world.removeBody(this.body);
+    this.game.events.emit('player:entered', { player: this, vehicle });
+    return true;
+  }
+
+  exitVehicle({ eject = false } = {}) {
+    const v = this.vehicle;
+    if (!v) return;
+    this.vehicle = null;
+    v.driver = null;
+    const p = eject ? v.position.clone().setY(2.6) : v.doorPoint();
+    this.body.position.set(p.x, (eject ? p.y : 0) + HALF_HEIGHT + 0.05, p.z);
+    this.body.velocity.set(0, 0, 0);
+    this.game.physics.world.addBody(this.body);
+    this.yaw = v.yaw;
+    this.game.events.emit('player:exited', { player: this, vehicle: v });
+    if (eject) {
+      // Out through the windshield, with the truck's momentum.
+      const f = v.forward();
+      this.flop({ x: f.x * (v.speed + 4), y: 9, z: f.z * (v.speed + 4) });
+      this.game.toast(Math.abs(v.speed) > 8 ? 'YEET' : 'Ejected. Seatbelts are for quitters.', 'gary');
     }
+  }
+
+  updateDriving(dt, intent) {
+    const v = this.vehicle;
+    this.picker.target = null;
+    const a = intent.axes ?? { x: 0, y: 0 };
+    v.drive(dt, { throttle: a.y, steer: a.x, brake: intent.brake });
+    // Ride along so feet()/eye() (zone checks, prompts) follow the truck.
+    this.body.position.set(v.position.x, v.position.y + 0.4, v.position.z);
+    if (intent.flop) this.exitVehicle({ eject: true });
+    else if (intent.grab) this.game.sellFromTruck(this);
+    else if (intent.interact) this.exitVehicle();
   }
 
   tryGrab(intent) {
@@ -209,7 +239,7 @@ export class Player {
 
   // ---- Ragdoll ----
   flop(velocity = null) {
-    if (this.ragdoll) return;
+    if (this.ragdoll || this.vehicle) return;
     this.grabber.release();
     const v = velocity ?? {
       x: this.body.velocity.x - Math.sin(this.yaw) * 3,
